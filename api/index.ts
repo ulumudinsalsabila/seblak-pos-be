@@ -1,12 +1,21 @@
-import express, { Request, Response } from 'express';
-import { NestFactory } from '@nestjs/core';
-import { ExpressAdapter } from '@nestjs/platform-express';
-import { AppModule } from '../src/app.module';
-import { configureApp } from '../src/configure-app';
+import type { Express, Request, Response } from 'express';
 
-let serverPromise: Promise<express.Express> | undefined;
+let serverPromise: Promise<Express> | undefined;
 
 async function createServer() {
+  const [expressModule, nestCore, nestExpress, appModule, appConfig] =
+    await Promise.all([
+      import('express'),
+      import('@nestjs/core'),
+      import('@nestjs/platform-express'),
+      import('../src/app.module'),
+      import('../src/configure-app'),
+    ]);
+  const express = expressModule.default;
+  const { NestFactory } = nestCore;
+  const { ExpressAdapter } = nestExpress;
+  const { AppModule } = appModule;
+  const { configureApp } = appConfig;
   const server = express();
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), {
     bodyParser: false,
