@@ -6,29 +6,64 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateProductDto, UpdateProductDto } from './product.dto';
+import {
+  CreateProductDto,
+  ListProductsDto,
+  UpdateProductDto,
+} from './product.dto';
 
 @Injectable()
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(activeOnly = false, search?: string, categoryId?: string) {
-    return this.prisma.product.findMany({
-      where: {
-        ...(activeOnly ? { isActive: true, category: { isActive: true } } : {}),
-        ...(categoryId ? { categoryId } : {}),
-        ...(search
-          ? {
-              OR: [
-                { name: { contains: search, mode: 'insensitive' } },
-                { sku: { contains: search, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-      },
+  async list(query: ListProductsDto) {
+    const search = query.search?.trim();
+    const where: Prisma.ProductWhereInput = {
+      ...(query.activeOnly === 'true'
+        ? { isActive: true, category: { isActive: true } }
+        : {}),
+      ...(query.status ? { isActive: query.status === 'ACTIVE' } : {}),
+      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { sku: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const paginated = query.page !== undefined || query.limit !== undefined;
+    const findMany = this.prisma.product.findMany({
+      where,
       include: { category: true },
-      orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
+      orderBy: [
+        { category: { sortOrder: 'asc' as const } },
+        { name: 'asc' as const },
+      ],
+      ...(paginated ? { skip: (page - 1) * limit, take: limit } : {}),
     });
+
+    if (!paginated) {
+      return { data: await findMany, meta: null };
+    }
+
+    const [data, total] = await Promise.all([
+      findMany,
+      this.prisma.product.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async find(id: string) {
