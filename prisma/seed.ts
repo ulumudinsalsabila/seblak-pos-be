@@ -1,15 +1,19 @@
-import { PrismaClient, PricingType, Role, UserStatus } from '@prisma/client';
+import { Prisma, PrismaClient, PricingType, Role, UserStatus } from '@prisma/client';
 import { hash } from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+const wait = (milliseconds: number) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 async function main() {
-  const email = (process.env.SEED_OWNER_EMAIL ?? 'owner@seblak.local').toLowerCase();
-  const password = process.env.SEED_OWNER_PASSWORD ?? 'ChangeMe123!';
+  const email = (process.env.SEED_OWNER_EMAIL ?? 'owner@mail.com').toLowerCase();
+  const password = process.env.SEED_OWNER_PASSWORD ?? '12345678';
+  const passwordHash = await hash(password, 10);
   await prisma.user.upsert({
     where: { email },
-    create: { name: 'Owner', email, passwordHash: await hash(password, 10), role: Role.OWNER, status: UserStatus.ACTIVE },
-    update: {},
+    create: { name: 'Owner', email, passwordHash, role: Role.OWNER, status: UserStatus.ACTIVE },
+    update: { name: 'Owner', passwordHash, role: Role.OWNER, status: UserStatus.ACTIVE },
   });
   await prisma.storeSettings.upsert({
     where: { id: 'default' },
@@ -28,4 +32,25 @@ async function main() {
   });
 }
 
-main().finally(() => prisma.$disconnect());
+async function seedWithRetry() {
+  const maximumAttempts = 5;
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    try {
+      await main();
+      return;
+    } catch (error) {
+      const isConnectionError =
+        error instanceof Prisma.PrismaClientInitializationError &&
+        (error.errorCode === 'P1001' ||
+          error.message.includes("Can't reach database server"));
+      if (!isConnectionError || attempt === maximumAttempts) throw error;
+      const delay = attempt * 3_000;
+      console.warn(
+        `Database belum siap (percobaan ${attempt}/${maximumAttempts}), retry dalam ${delay / 1000} detik...`,
+      );
+      await wait(delay);
+    }
+  }
+}
+
+seedWithRetry().finally(() => prisma.$disconnect());
