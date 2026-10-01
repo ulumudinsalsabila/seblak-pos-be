@@ -17,7 +17,19 @@ async function createServer() {
 }
 
 export default async function handler(request: Request, response: Response) {
-  serverPromise ??= createServer();
-  const server = await serverPromise;
-  return server(request, response);
+  try {
+    serverPromise ??= createServer();
+    const server = await serverPromise;
+    return server(request, response);
+  } catch (error) {
+    console.error('Nest bootstrap failed', error);
+    const details =
+      error instanceof Error
+        ? { name: error.name, message: error.message }
+        : { name: 'UnknownError', message: 'Unknown bootstrap error' };
+    return response.status(500).json({
+      error: 'API_BOOTSTRAP_FAILED',
+      details,
+    });
+  }
 }
