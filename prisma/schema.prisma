@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  CASHIER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PricingType {
+  FIXED
+  PER_ITEM
+}
+
+enum PaymentMethod {
+  CASH
+  QRIS
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PAID
+  VOID
+}
+
+enum ReceiptPaperSize {
+  MM58
+  MM80
+}
+
+model User {
+  id                 String         @id @default(uuid()) @db.Uuid
+  name               String         @db.VarChar(100)
+  email              String         @unique @db.VarChar(254)
+  passwordHash       String
+  role               Role
+  status             UserStatus     @default(ACTIVE)
+  createdAt          DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
+  refreshTokens      RefreshToken[]
+  transactions       Transaction[]  @relation("CashierTransactions")
+  voidedTransactions Transaction[]  @relation("VoidedTransactions")
+  expenses           Expense[]
+}
+
+model RefreshToken {
+  id        String    @id @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String
+  expiresAt DateTime  @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Category {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @db.VarChar(100)
+  description String?   @db.VarChar(500)
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  products    Product[]
+}
+
+model Product {
+  id               String            @id @default(uuid()) @db.Uuid
+  categoryId       String            @db.Uuid
+  name             String            @db.VarChar(100)
+  sku              String            @unique @db.VarChar(50)
+  pricingType      PricingType
+  price            Int
+  stock            Int?
+  trackStock       Boolean           @default(false)
+  imageUrl         String?           @db.VarChar(500)
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
+  category         Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  transactionItems TransactionItem[]
+
+  @@index([categoryId, isActive])
+}
+
+model Transaction {
+  id                  String            @id @default(uuid()) @db.Uuid
+  clientTransactionId String            @unique @db.Uuid
+  invoiceNo           String            @unique @db.VarChar(32)
+  cashierId           String            @db.Uuid
+  subtotal            Int
+  discount            Int               @default(0)
+  tax                 Int               @default(0)
+  taxPercentage       Decimal           @default(0) @db.Decimal(5, 2)
+  total               Int
+  spicyLevel          Int
+  notes               String?           @db.VarChar(500)
+  paymentMethod       PaymentMethod
+  amountReceived      Int?
+  changeAmount        Int               @default(0)
+  status              TransactionStatus @default(PAID)
+  paidAt              DateTime          @default(now()) @db.Timestamptz(3)
+  voidedAt            DateTime?         @db.Timestamptz(3)
+  voidedById          String?           @db.Uuid
+  voidReason          String?           @db.VarChar(500)
+  storeName           String            @db.VarChar(100)
+  storeAddress        String?           @db.VarChar(500)
+  storePhone          String?           @db.VarChar(50)
+  currency            String            @default("IDR") @db.VarChar(10)
+  receiptHeader       String?           @db.VarChar(500)
+  receiptFooter       String?           @db.VarChar(500)
+  receiptPaperSize    ReceiptPaperSize
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @db.Timestamptz(3)
+  cashier             User              @relation("CashierTransactions", fields: [cashierId], references: [id], onDelete: Restrict)
+  voidedBy            User?             @relation("VoidedTransactions", fields: [voidedById], references: [id], onDelete: Restrict)
+  items               TransactionItem[]
+
+  @@index([paidAt, status])
+  @@index([cashierId, paidAt])
+  @@index([paymentMethod, paidAt])
+}
+
+model TransactionItem {
+  id            String      @id @default(uuid()) @db.Uuid
+  transactionId String      @db.Uuid
+  productId     String?     @db.Uuid
+  productName   String      @db.VarChar(100)
+  categoryId    String?     @db.Uuid
+  categoryName  String      @db.VarChar(100)
+  sku           String      @db.VarChar(50)
+  pricingType   PricingType
+  trackStock    Boolean
+  unitPrice     Int
+  quantity      Int
+  subtotal      Int
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product       Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([transactionId])
+  @@index([productId])
+}
+
+model Expense {
+  id          String   @id @default(uuid()) @db.Uuid
+  createdById String   @db.Uuid
+  description String   @db.VarChar(500)
+  amount      Int
+  expenseDate DateTime @db.Date
+  notes       String?  @db.VarChar(500)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([expenseDate])
+}
+
+model StoreSettings {
+  id               String           @id @default("default")
+  storeName        String           @default("Seblak Prasmanan") @db.VarChar(100)
+  address          String?          @db.VarChar(500)
+  phone            String?          @db.VarChar(50)
+  currency         String           @default("IDR") @db.VarChar(10)
+  taxEnabled       Boolean          @default(false)
+  taxPercentage    Decimal          @default(0) @db.Decimal(5, 2)
+  receiptHeader    String?          @db.VarChar(500)
+  receiptFooter    String?          @db.VarChar(500)
+  receiptPaperSize ReceiptPaperSize @default(MM58)
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
+}
+
+model DailyInvoiceCounter {
+  businessDate DateTime @id @db.Date
+  lastSequence Int
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+}
