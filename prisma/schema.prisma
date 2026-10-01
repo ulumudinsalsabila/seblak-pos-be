@@ -33,6 +33,23 @@ enum TransactionStatus {
   VOID
 }
 
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+}
+
+enum BrothLevel {
+  LITTLE
+  MEDIUM
+  MUCH
+}
+
+enum TastePreference {
+  SALTY
+  SAVORY
+  SWEET
+}
+
 enum ReceiptPaperSize {
   MM58
   MM80
@@ -105,7 +122,11 @@ model Transaction {
   tax                 Int               @default(0)
   taxPercentage       Decimal           @default(0) @db.Decimal(5, 2)
   total               Int
+  customerName        String            @default("Pelanggan") @db.VarChar(100)
+  orderType           OrderType         @default(DINE_IN)
   spicyLevel          Int
+  brothLevel          BrothLevel        @default(MEDIUM)
+  tastePreference     TastePreference   @default(SAVORY)
   notes               String?           @db.VarChar(500)
   paymentMethod       PaymentMethod
   amountReceived      Int?

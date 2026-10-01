@@ -1,4 +1,10 @@
-import { PaymentMethod, TransactionStatus } from '@prisma/client';
+import {
+  BrothLevel,
+  OrderType,
+  PaymentMethod,
+  TastePreference,
+  TransactionStatus,
+} from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -28,7 +34,11 @@ export class CreateTransactionDto {
   @ValidateNested({ each: true })
   @Type(() => CheckoutItemDto)
   items!: CheckoutItemDto[];
+  @IsString() @MinLength(1) @MaxLength(100) customerName!: string;
+  @IsEnum(OrderType) orderType!: OrderType;
   @IsInt() @Min(0) @Max(5) spicyLevel!: number;
+  @IsEnum(BrothLevel) brothLevel!: BrothLevel;
+  @IsEnum(TastePreference) tastePreference!: TastePreference;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
   @IsInt() @Min(0) @Max(2_000_000_000) discount!: number;
   @IsEnum(PaymentMethod) paymentMethod!: PaymentMethod;
