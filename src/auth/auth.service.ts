@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 
-const ACCESS_TTL = '15m';
+const ACCESS_SECONDS = 60 * 60;
 const REFRESH_SECONDS = 7 * 24 * 60 * 60;
 
 @Injectable()
@@ -91,7 +91,7 @@ export class AuthService {
       { sub: userId, email, role },
       {
         secret: this.config.getOrThrow('JWT_ACCESS_SECRET'),
-        expiresIn: ACCESS_TTL,
+        expiresIn: ACCESS_SECONDS,
       },
     );
     const jti = randomUUID();
@@ -110,6 +110,6 @@ export class AuthService {
         expiresAt: new Date(Date.now() + REFRESH_SECONDS * 1000),
       },
     });
-    return { accessToken, refreshToken, expiresIn: 15 * 60 };
+    return { accessToken, refreshToken, expiresIn: ACCESS_SECONDS };
   }
 }
