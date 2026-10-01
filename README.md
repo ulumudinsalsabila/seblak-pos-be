@@ -20,6 +20,6 @@ npm run build
 ## Deploy ke Vercel
 
 Backend menyediakan entrypoint serverless di `api/index.ts`. Set environment
-variables `DATABASE_URL`, `FRONTEND_URL`, `JWT_ACCESS_SECRET`, dan
+variables `DATABASE_URL`, `FRONTEND_URL`, `CORS_ORIGINS`, `JWT_ACCESS_SECRET`, dan
 `JWT_REFRESH_SECRET` pada project Vercel. Gunakan Neon pooled connection string
 untuk `DATABASE_URL`.
