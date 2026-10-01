@@ -99,13 +99,14 @@ async function main() {
     });
   }
 
-  await prisma.product.updateMany({
+  await prisma.product.deleteMany({
     where: { sku: 'SBL-ORIGINAL' },
-    data: { isActive: false },
   });
-  await prisma.category.updateMany({
-    where: { id: '00000000-0000-4000-8000-000000000001' },
-    data: { isActive: false },
+  await prisma.category.deleteMany({
+    where: {
+      id: '00000000-0000-4000-8000-000000000001',
+      products: { none: {} },
+    },
   });
 
   console.log(
