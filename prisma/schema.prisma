@@ -170,7 +170,7 @@ model Expense {
 
 model StoreSettings {
   id               String           @id @default("default")
-  storeName        String           @default("Seblak Prasmanan") @db.VarChar(100)
+  storeName        String           @default("Saung Sunja") @db.VarChar(100)
   address          String?          @db.VarChar(500)
   phone            String?          @db.VarChar(50)
   currency         String           @default("IDR") @db.VarChar(10)

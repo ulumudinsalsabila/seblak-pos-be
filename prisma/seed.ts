@@ -17,8 +17,8 @@ async function main() {
   });
   await prisma.storeSettings.upsert({
     where: { id: 'default' },
-    create: { id: 'default', storeName: 'Seblak Prasmanan', receiptFooter: 'Terima kasih sudah mampir!' },
-    update: {},
+    create: { id: 'default', storeName: 'Saung Sunja', receiptFooter: 'Terima kasih sudah mampir!' },
+    update: { storeName: 'Saung Sunja' },
   });
   const category = await prisma.category.upsert({
     where: { id: '00000000-0000-4000-8000-000000000001' },

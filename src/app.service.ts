@@ -4,7 +4,7 @@ import { Injectable } from '@nestjs/common';
 export class AppService {
   getHello() {
     return {
-      data: { name: 'Seblak Prasmanan POS API', status: 'ok' },
+      data: { name: 'Saung Sunja POS API', status: 'ok' },
       meta: null,
     };
   }

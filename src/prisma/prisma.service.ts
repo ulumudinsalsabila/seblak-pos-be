@@ -14,11 +14,6 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
 
   async onModuleInit() {
-    // Prisma connects lazily on the first query. Keeping that behavior on
-    // Vercel prevents a temporary Neon wake-up delay from crashing a cold
-    // serverless invocation before Nest can finish booting.
-    if (process.env.VERCEL === '1') return;
-
     const maximumAttempts = 5;
     for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
       try {

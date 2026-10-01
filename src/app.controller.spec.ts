@@ -17,7 +17,7 @@ describe('AppController', () => {
   describe('root', () => {
     it('returns API health metadata', () => {
       expect(appController.getHello()).toEqual({
-        data: { name: 'Seblak Prasmanan POS API', status: 'ok' },
+        data: { name: 'Saung Sunja POS API', status: 'ok' },
         meta: null,
       });
     });

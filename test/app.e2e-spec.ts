@@ -20,7 +20,7 @@ describe('AppController (e2e)', () => {
       .get('/')
       .expect(200)
       .expect({
-        data: { name: 'Seblak Prasmanan POS API', status: 'ok' },
+        data: { name: 'Saung Sunja POS API', status: 'ok' },
         meta: null,
       });
   });

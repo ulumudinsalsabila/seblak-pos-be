@@ -18,7 +18,7 @@ export class SettingsService {
       create: {
         id: 'default',
         ...dto,
-        storeName: dto.storeName?.trim() ?? 'Seblak Prasmanan',
+        storeName: dto.storeName?.trim() ?? 'Saung Sunja',
       },
       update: {
         ...dto,
