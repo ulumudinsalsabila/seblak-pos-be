@@ -345,7 +345,7 @@ model StoreSettings {
   storeName        String           @default("Saung Sunja") @db.VarChar(100)
   logoUrl          String?          @db.VarChar(500)
   faviconUrl       String?          @db.VarChar(500)
-  primaryColor     String           @default("#0B63F6") @db.VarChar(7)
+  primaryColor     String           @default("#4F46E5") @db.VarChar(7)
   address          String?          @db.VarChar(500)
   phone            String?          @db.VarChar(50)
   currency         String           @default("IDR") @db.VarChar(10)

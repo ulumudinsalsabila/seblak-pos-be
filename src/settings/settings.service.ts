@@ -19,7 +19,7 @@ export class SettingsService {
         storeName: 'DagoraApp',
         logoUrl: null,
         faviconUrl: null,
-        primaryColor: '#0B63F6',
+        primaryColor: '#4F46E5',
       };
     }
     return (
@@ -40,7 +40,7 @@ export class SettingsService {
         storeName: 'DagoraApp',
         logoUrl: null,
         faviconUrl: null,
-        primaryColor: '#0B63F6',
+        primaryColor: '#4F46E5',
       }
     );
   }
