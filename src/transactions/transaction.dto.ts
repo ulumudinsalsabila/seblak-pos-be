@@ -1,5 +1,6 @@
 import {
   BrothLevel,
+  KitchenStatus,
   OrderType,
   PaymentMethod,
   TastePreference,
@@ -58,4 +59,10 @@ export class ListTransactionsDto {
   @IsOptional() @IsUUID() cashierId?: string;
   @IsOptional() @IsEnum(PaymentMethod) paymentMethod?: PaymentMethod;
   @IsOptional() @IsEnum(TransactionStatus) status?: TransactionStatus;
+}
+
+export class ListKitchenOrdersDto {
+  @IsOptional() @IsEnum(KitchenStatus) status: KitchenStatus =
+    KitchenStatus.PENDING;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 100;
 }

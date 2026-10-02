@@ -15,6 +15,7 @@ import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import {
   CreateTransactionDto,
+  ListKitchenOrdersDto,
   ListTransactionsDto,
   VoidTransactionDto,
 } from './transaction.dto';
@@ -32,6 +33,24 @@ export class TransactionsController {
   }
   @Get() async list(@Query() query: ListTransactionsDto) {
     return this.transactions.list(query);
+  }
+  @Get('kitchen') async kitchen(@Query() query: ListKitchenOrdersDto) {
+    return { data: await this.transactions.kitchen(query), meta: null };
+  }
+  @Post('kitchen/:id/complete') async completeOrder(@Param('id') id: string) {
+    return {
+      data: await this.transactions.completeKitchenOrder(id),
+      meta: null,
+    };
+  }
+  @Post('kitchen/:id/items/:itemId/complete') async completeItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+  ) {
+    return {
+      data: await this.transactions.completeKitchenItem(id, itemId),
+      meta: null,
+    };
   }
   @Get(':id') async find(@Param('id') id: string) {
     return { data: await this.transactions.find(id), meta: null };

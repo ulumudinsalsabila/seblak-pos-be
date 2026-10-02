@@ -4,10 +4,19 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
+import {
+  KitchenStatus,
+  PaymentMethod,
+  Prisma,
+  TransactionStatus,
+} from '@prisma/client';
 import { jakartaRange } from '../common/dates';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateTransactionDto, ListTransactionsDto } from './transaction.dto';
+import {
+  CreateTransactionDto,
+  ListKitchenOrdersDto,
+  ListTransactionsDto,
+} from './transaction.dto';
 import { calculateTotals } from './calculation';
 
 const includeDetail = {
@@ -256,6 +265,93 @@ export class TransactionsService {
     });
     if (!transaction) throw new NotFoundException('Transaction not found');
     return transaction;
+  }
+
+  async kitchen(query: ListKitchenOrdersDto) {
+    const completedRange =
+      query.status === KitchenStatus.COMPLETED
+        ? jakartaRange(this.businessDate(), this.businessDate())
+        : undefined;
+    return this.prisma.transaction.findMany({
+      where: {
+        status: TransactionStatus.PAID,
+        kitchenStatus: query.status,
+        kitchenCompletedAt: completedRange,
+      },
+      include: includeDetail,
+      orderBy:
+        query.status === KitchenStatus.PENDING
+          ? { createdAt: 'asc' }
+          : { kitchenCompletedAt: 'desc' },
+      take: query.limit,
+    });
+  }
+
+  async completeKitchenItem(transactionId: string, itemId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findFirst({
+        where: { id: transactionId, status: TransactionStatus.PAID },
+        select: { id: true },
+      });
+      if (!transaction) throw new NotFoundException('Kitchen order not found');
+
+      const item = await tx.transactionItem.findFirst({
+        where: { id: itemId, transactionId },
+        select: { id: true },
+      });
+      if (!item) throw new NotFoundException('Kitchen order item not found');
+
+      await tx.transactionItem.updateMany({
+        where: {
+          id: itemId,
+          transactionId,
+          kitchenStatus: KitchenStatus.PENDING,
+        },
+        data: {
+          kitchenStatus: KitchenStatus.COMPLETED,
+          completedAt: new Date(),
+        },
+      });
+      const remaining = await tx.transactionItem.count({
+        where: { transactionId, kitchenStatus: KitchenStatus.PENDING },
+      });
+      if (remaining === 0) {
+        await tx.transaction.update({
+          where: { id: transactionId },
+          data: {
+            kitchenStatus: KitchenStatus.COMPLETED,
+            kitchenCompletedAt: new Date(),
+          },
+        });
+      }
+      return tx.transaction.findUniqueOrThrow({
+        where: { id: transactionId },
+        include: includeDetail,
+      });
+    });
+  }
+
+  async completeKitchenOrder(transactionId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findFirst({
+        where: { id: transactionId, status: TransactionStatus.PAID },
+        select: { id: true },
+      });
+      if (!transaction) throw new NotFoundException('Kitchen order not found');
+      const completedAt = new Date();
+      await tx.transactionItem.updateMany({
+        where: { transactionId, kitchenStatus: KitchenStatus.PENDING },
+        data: { kitchenStatus: KitchenStatus.COMPLETED, completedAt },
+      });
+      return tx.transaction.update({
+        where: { id: transactionId },
+        data: {
+          kitchenStatus: KitchenStatus.COMPLETED,
+          kitchenCompletedAt: completedAt,
+        },
+        include: includeDetail,
+      });
+    });
   }
 
   async void(id: string, ownerId: string, reason: string) {

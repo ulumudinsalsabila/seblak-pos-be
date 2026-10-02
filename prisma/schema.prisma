@@ -33,6 +33,11 @@ enum TransactionStatus {
   VOID
 }
 
+enum KitchenStatus {
+  PENDING
+  COMPLETED
+}
+
 enum OrderType {
   DINE_IN
   TAKEAWAY
@@ -132,6 +137,8 @@ model Transaction {
   amountReceived      Int?
   changeAmount        Int               @default(0)
   status              TransactionStatus @default(PAID)
+  kitchenStatus       KitchenStatus     @default(PENDING)
+  kitchenCompletedAt  DateTime?         @db.Timestamptz(3)
   paidAt              DateTime          @default(now()) @db.Timestamptz(3)
   voidedAt            DateTime?         @db.Timestamptz(3)
   voidedById          String?           @db.Uuid
@@ -152,6 +159,7 @@ model Transaction {
   @@index([paidAt, status])
   @@index([cashierId, paidAt])
   @@index([paymentMethod, paidAt])
+  @@index([kitchenStatus, createdAt])
 }
 
 model TransactionItem {
@@ -167,6 +175,8 @@ model TransactionItem {
   unitPrice     Int
   quantity      Int
   subtotal      Int
+  kitchenStatus KitchenStatus @default(PENDING)
+  completedAt   DateTime?     @db.Timestamptz(3)
   createdAt     DateTime    @default(now()) @db.Timestamptz(3)
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   product       Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
