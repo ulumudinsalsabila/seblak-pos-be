@@ -26,6 +26,10 @@ import { IsDateString } from 'class-validator';
 export class CheckoutItemDto {
   @IsUUID() productId!: string;
   @IsInt() @Min(1) @Max(10_000) quantity!: number;
+  @IsOptional() @IsInt() @Min(0) @Max(5) spicyLevel?: number;
+  @IsOptional() @IsEnum(BrothLevel) brothLevel?: BrothLevel;
+  @IsOptional() @IsEnum(TastePreference) tastePreference?: TastePreference;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
 }
 
 export class CreateTransactionDto {

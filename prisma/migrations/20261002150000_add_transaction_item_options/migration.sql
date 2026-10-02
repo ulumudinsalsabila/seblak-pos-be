@@ -1,0 +1,5 @@
+ALTER TABLE "TransactionItem"
+ADD COLUMN "spicyLevel" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "brothLevel" "BrothLevel" NOT NULL DEFAULT 'MEDIUM',
+ADD COLUMN "tastePreference" "TastePreference" NOT NULL DEFAULT 'SAVORY',
+ADD COLUMN "notes" VARCHAR(500);

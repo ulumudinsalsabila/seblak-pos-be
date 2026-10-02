@@ -105,7 +105,15 @@ export class TransactionsService {
               throw new UnprocessableEntityException(
                 'Item subtotal exceeds transaction limit',
               );
-            return { product, quantity: item.quantity, subtotal };
+            return {
+              product,
+              quantity: item.quantity,
+              subtotal,
+              spicyLevel: item.spicyLevel ?? dto.spicyLevel,
+              brothLevel: item.brothLevel ?? dto.brothLevel,
+              tastePreference: item.tastePreference ?? dto.tastePreference,
+              notes: item.notes?.trim() || null,
+            };
           });
 
           const subtotal = lines.reduce((sum, line) => sum + line.subtotal, 0);
@@ -239,6 +247,10 @@ export class TransactionsService {
                   unitPrice: line.product.price,
                   quantity: line.quantity,
                   subtotal: line.subtotal,
+                  spicyLevel: line.spicyLevel,
+                  brothLevel: line.brothLevel,
+                  tastePreference: line.tastePreference,
+                  notes: line.notes,
                 })),
               },
             },

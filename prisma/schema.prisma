@@ -307,6 +307,10 @@ model TransactionItem {
   unitPrice     Int
   quantity      Int
   subtotal      Int
+  spicyLevel    Int               @default(0)
+  brothLevel    BrothLevel        @default(MEDIUM)
+  tastePreference TastePreference @default(SAVORY)
+  notes         String?           @db.VarChar(500)
   kitchenStatus KitchenStatus @default(PENDING)
   completedAt   DateTime?     @db.Timestamptz(3)
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
