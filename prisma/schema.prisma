@@ -163,13 +163,13 @@ model Transaction {
 }
 
 model TransactionItem {
-  id            String      @id @default(uuid()) @db.Uuid
-  transactionId String      @db.Uuid
-  productId     String?     @db.Uuid
-  productName   String      @db.VarChar(100)
-  categoryId    String?     @db.Uuid
-  categoryName  String      @db.VarChar(100)
-  sku           String      @db.VarChar(50)
+  id            String        @id @default(uuid()) @db.Uuid
+  transactionId String        @db.Uuid
+  productId     String?       @db.Uuid
+  productName   String        @db.VarChar(100)
+  categoryId    String?       @db.Uuid
+  categoryName  String        @db.VarChar(100)
+  sku           String        @db.VarChar(50)
   pricingType   PricingType
   trackStock    Boolean
   unitPrice     Int
@@ -177,9 +177,9 @@ model TransactionItem {
   subtotal      Int
   kitchenStatus KitchenStatus @default(PENDING)
   completedAt   DateTime?     @db.Timestamptz(3)
-  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
-  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  product       Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  transaction   Transaction   @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product       Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([transactionId])
   @@index([productId])
@@ -202,6 +202,8 @@ model Expense {
 model StoreSettings {
   id               String           @id @default("default")
   storeName        String           @default("Saung Sunja") @db.VarChar(100)
+  logoUrl          String?          @db.VarChar(500)
+  faviconUrl       String?          @db.VarChar(500)
   address          String?          @db.VarChar(500)
   phone            String?          @db.VarChar(50)
   currency         String           @default("IDR") @db.VarChar(10)

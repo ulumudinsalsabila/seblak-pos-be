@@ -6,7 +6,7 @@ import { v2 as cloudinary } from 'cloudinary';
 export class ProductImagesService {
   constructor(private readonly config: ConfigService) {}
 
-  createUploadSignature() {
+  createUploadSignature(folder = 'seblak') {
     if (this.config.get('STORAGE_PROVIDER') !== 'cloudinary') {
       throw new ServiceUnavailableException(
         'Cloudinary storage is not enabled',
@@ -23,7 +23,6 @@ export class ProductImagesService {
     }
 
     const timestamp = Math.floor(Date.now() / 1000);
-    const folder = 'seblak';
     const signature = cloudinary.utils.api_sign_request(
       { folder, timestamp },
       apiSecret,

@@ -9,10 +9,21 @@ import {
   MaxLength,
   Min,
   MinLength,
+  IsUrl,
 } from 'class-validator';
 
 export class UpdateSettingsDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(100) storeName?: string;
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_protocol: true })
+  @MaxLength(500)
+  logoUrl?: string;
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_protocol: true })
+  @MaxLength(500)
+  faviconUrl?: string;
   @IsOptional() @IsString() @MaxLength(500) address?: string;
   @IsOptional() @IsString() @MaxLength(50) phone?: string;
   @IsOptional() @IsString() @MaxLength(10) currency?: string;

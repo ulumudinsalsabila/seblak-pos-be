@@ -12,6 +12,14 @@ export class SettingsService {
       update: {},
     });
   }
+  async getBranding() {
+    return (
+      (await this.prisma.storeSettings.findUnique({
+        where: { id: 'default' },
+        select: { storeName: true, logoUrl: true, faviconUrl: true },
+      })) ?? { storeName: 'Saung Sunja', logoUrl: null, faviconUrl: null }
+    );
+  }
   update(dto: UpdateSettingsDto) {
     return this.prisma.storeSettings.upsert({
       where: { id: 'default' },
@@ -23,6 +31,12 @@ export class SettingsService {
       update: {
         ...dto,
         storeName: dto.storeName?.trim(),
+        logoUrl:
+          dto.logoUrl === undefined ? undefined : dto.logoUrl?.trim() || null,
+        faviconUrl:
+          dto.faviconUrl === undefined
+            ? undefined
+            : dto.faviconUrl?.trim() || null,
         address: dto.address?.trim(),
         phone: dto.phone?.trim(),
         currency: dto.currency?.trim().toUpperCase(),
