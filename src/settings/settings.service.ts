@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateSettingsDto } from './settings.dto';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class SettingsService {
@@ -43,17 +44,42 @@ export class SettingsService {
       }
     );
   }
-  update(outletId: string, dto: UpdateSettingsDto) {
+  async update(outletId: string, dto: UpdateSettingsDto) {
+    if (dto.menuOptions) {
+      const groupIds = dto.menuOptions.map((group) => group.id);
+      if (new Set(groupIds).size !== groupIds.length) {
+        throw new UnprocessableEntityException('ID grup opsi tidak boleh duplikat');
+      }
+      for (const group of dto.menuOptions) {
+        if (new Set(group.categoryIds).size !== group.categoryIds.length)
+          throw new UnprocessableEntityException(`Kategori pada opsi ${group.name} tidak boleh duplikat`);
+        const valueIds = group.values.map((value) => value.id);
+        if (new Set(valueIds).size !== valueIds.length)
+          throw new UnprocessableEntityException(`ID nilai pada opsi ${group.name} tidak boleh duplikat`);
+        if (group.values.filter((value) => value.isDefault).length > 1)
+          throw new UnprocessableEntityException(`Opsi ${group.name} hanya boleh punya satu nilai default`);
+      }
+      const categoryIds = [...new Set(dto.menuOptions.flatMap((group) => group.categoryIds))];
+      const categoryCount = await this.prisma.category.count({
+        where: { outletId, id: { in: categoryIds } },
+      });
+      if (categoryCount !== categoryIds.length)
+        throw new UnprocessableEntityException('Terdapat kategori opsi yang tidak valid');
+    }
+    const { menuOptions, ...settings } = dto;
+    const menuOptionsData = menuOptions as Prisma.InputJsonValue | undefined;
     return this.prisma.storeSettings.upsert({
       where: { outletId },
       create: {
         id: `outlet-${outletId}`,
         outletId,
-        ...dto,
+        ...settings,
+        menuOptions: menuOptionsData,
         storeName: dto.storeName?.trim() ?? 'Saung Sunja',
       },
       update: {
-        ...dto,
+        ...settings,
+        menuOptions: menuOptionsData,
         storeName: dto.storeName?.trim(),
         logoUrl:
           dto.logoUrl === undefined ? undefined : dto.logoUrl?.trim() || null,

@@ -11,6 +11,16 @@ import { masterCategories, masterProducts } from './master-product.seed';
 const prisma = new PrismaClient();
 const DEFAULT_TENANT_ID = '10000000-0000-4000-8000-000000000001';
 const DEFAULT_OUTLET_ID = '10000000-0000-4000-8000-000000000002';
+const seblakCategoryId = masterCategories.find((category) => category.code === 'SEBLAK')!.id;
+const DEFAULT_MENU_OPTIONS = [
+  { id: 'taste', name: 'Rasa', sortOrder: 1, isActive: true, categoryIds: [seblakCategoryId], values: [
+    { id: 'SALTY', label: 'Asin' }, { id: 'SAVORY', label: 'Gurih', isDefault: true }, { id: 'SWEET', label: 'Manis' },
+  ] },
+  { id: 'spicy', name: 'Level pedas', sortOrder: 2, isActive: true, categoryIds: [seblakCategoryId], values: [0, 1, 2, 3, 4, 5].map((value) => ({ id: String(value), label: String(value), isDefault: value === 0 })) },
+  { id: 'broth', name: 'Kuah', sortOrder: 3, isActive: true, categoryIds: [seblakCategoryId], values: [
+    { id: 'LITTLE', label: 'Sedikit' }, { id: 'MEDIUM', label: 'Sedang', isDefault: true }, { id: 'MUCH', label: 'Banyak' },
+  ] },
+];
 
 const wait = (milliseconds: number) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -70,8 +80,9 @@ async function main() {
       outletId: DEFAULT_OUTLET_ID,
       storeName: 'Saung Sunja',
       receiptFooter: 'Terima kasih sudah mampir!',
+      menuOptions: DEFAULT_MENU_OPTIONS,
     },
-    update: { outletId: DEFAULT_OUTLET_ID, storeName: 'Saung Sunja' },
+    update: { outletId: DEFAULT_OUTLET_ID, storeName: 'Saung Sunja', menuOptions: DEFAULT_MENU_OPTIONS },
   });
   const categoryIds = new Map<string, string>();
 

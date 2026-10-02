@@ -311,6 +311,7 @@ model TransactionItem {
   brothLevel    BrothLevel        @default(MEDIUM)
   tastePreference TastePreference @default(SAVORY)
   notes         String?           @db.VarChar(500)
+  selectedOptions Json?
   kitchenStatus KitchenStatus @default(PENDING)
   completedAt   DateTime?     @db.Timestamptz(3)
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
@@ -353,6 +354,7 @@ model StoreSettings {
   receiptHeader    String?          @db.VarChar(500)
   receiptFooter    String?          @db.VarChar(500)
   receiptPaperSize ReceiptPaperSize @default(MM58)
+  menuOptions      Json             @default("[]")
   createdAt        DateTime         @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
   outlet           Outlet           @relation(fields: [outletId], references: [id], onDelete: Cascade)

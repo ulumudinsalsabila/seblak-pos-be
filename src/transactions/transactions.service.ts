@@ -23,6 +23,14 @@ import {
 import { calculateTotals } from './calculation';
 import { calculatePlatformFee } from './fees';
 
+type MenuOptionGroup = {
+  id: string;
+  name: string;
+  isActive?: boolean;
+  categoryIds: string[];
+  values: { id: string; label: string }[];
+};
+
 const includeDetail = {
   items: true,
   cashier: { select: { id: true, name: true } },
@@ -84,6 +92,9 @@ export class TransactionsService {
           const productMap = new Map(
             products.map((product) => [product.id, product]),
           );
+          const menuOptions = Array.isArray(settings.menuOptions)
+            ? (settings.menuOptions as MenuOptionGroup[])
+            : [];
           const lines = dto.items.map((item) => {
             const product = productMap.get(item.productId);
             if (!product)
@@ -100,6 +111,32 @@ export class TransactionsService {
                 code: 'CATEGORY_INACTIVE',
                 message: `Category for ${product.name} is inactive`,
               });
+            const applicableGroups = menuOptions.filter(
+              (group) =>
+                group.isActive !== false &&
+                Array.isArray(group.categoryIds) &&
+                group.categoryIds.includes(product.categoryId),
+            );
+            const selectedOptions = (item.selectedOptions ?? []).map((selected) => {
+              const group = applicableGroups.find((candidate) => candidate.id === selected.groupId);
+              const value = group?.values.find((candidate) => candidate.id === selected.valueId);
+              if (!group || !value)
+                throw new UnprocessableEntityException({
+                  code: 'INVALID_MENU_OPTION',
+                  message: `Opsi untuk ${product.name} tidak valid`,
+                });
+              return {
+                groupId: group.id,
+                groupName: group.name,
+                valueId: value.id,
+                valueLabel: value.label,
+              };
+            });
+            if (new Set(selectedOptions.map((selected) => selected.groupId)).size !== selectedOptions.length)
+              throw new UnprocessableEntityException({
+                code: 'INVALID_MENU_OPTION',
+                message: `Grup opsi untuk ${product.name} tidak boleh duplikat`,
+              });
             const subtotal = product.price * item.quantity;
             if (!Number.isSafeInteger(subtotal) || subtotal > 2_000_000_000)
               throw new UnprocessableEntityException(
@@ -113,6 +150,7 @@ export class TransactionsService {
               brothLevel: item.brothLevel ?? dto.brothLevel,
               tastePreference: item.tastePreference ?? dto.tastePreference,
               notes: item.notes?.trim() || null,
+              selectedOptions,
             };
           });
 
@@ -251,6 +289,7 @@ export class TransactionsService {
                   brothLevel: line.brothLevel,
                   tastePreference: line.tastePreference,
                   notes: line.notes,
+                  selectedOptions: line.selectedOptions ?? Prisma.JsonNull,
                 })),
               },
             },

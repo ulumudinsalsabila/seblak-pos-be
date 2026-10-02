@@ -20,8 +20,16 @@ import {
   Min,
   MinLength,
   ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
 import { IsDateString } from 'class-validator';
+
+export class SelectedOptionDto {
+  @IsString() @MinLength(1) @MaxLength(50) groupId!: string;
+  @IsString() @MinLength(1) @MaxLength(100) groupName!: string;
+  @IsString() @MinLength(1) @MaxLength(50) valueId!: string;
+  @IsString() @MinLength(1) @MaxLength(100) valueLabel!: string;
+}
 
 export class CheckoutItemDto {
   @IsUUID() productId!: string;
@@ -30,6 +38,8 @@ export class CheckoutItemDto {
   @IsOptional() @IsEnum(BrothLevel) brothLevel?: BrothLevel;
   @IsOptional() @IsEnum(TastePreference) tastePreference?: TastePreference;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(30) @ValidateNested({ each: true }) @Type(() => SelectedOptionDto)
+  selectedOptions?: SelectedOptionDto[];
 }
 
 export class CreateTransactionDto {
