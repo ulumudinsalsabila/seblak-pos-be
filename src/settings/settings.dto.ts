@@ -10,6 +10,7 @@ import {
   Min,
   MinLength,
   IsUrl,
+  Matches,
 } from 'class-validator';
 
 export class UpdateSettingsDto {
@@ -24,6 +25,10 @@ export class UpdateSettingsDto {
   @IsUrl({ require_protocol: true })
   @MaxLength(500)
   faviconUrl?: string;
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  primaryColor?: string;
   @IsOptional() @IsString() @MaxLength(500) address?: string;
   @IsOptional() @IsString() @MaxLength(50) phone?: string;
   @IsOptional() @IsString() @MaxLength(10) currency?: string;

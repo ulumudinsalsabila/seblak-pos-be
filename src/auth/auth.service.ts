@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { UserStatus } from '@prisma/client';
+import { Role, UserStatus } from '@prisma/client';
 import { compare, hash } from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -34,7 +34,7 @@ export class AuthService {
 
   async refresh(token?: string) {
     if (!token) throw new UnauthorizedException('Refresh token is required');
-    let payload: { sub: string; jti: string };
+    let payload: { sub: string; jti: string; outletId?: string | null };
     try {
       payload = await this.jwt.verifyAsync(token, {
         secret: this.config.getOrThrow('JWT_REFRESH_SECRET'),
@@ -67,7 +67,33 @@ export class AuthService {
       record.user.id,
       record.user.email,
       record.user.role,
+      payload.outletId ?? undefined,
     );
+  }
+
+  async switchOutlet(userId: string, outletId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.status !== UserStatus.ACTIVE)
+      throw new UnauthorizedException('User is inactive');
+    return this.issueSession(user.id, user.email, user.role, outletId);
+  }
+
+  outlets(userId: string) {
+    return this.prisma.outletMembership.findMany({
+      where: {
+        userId,
+        status: UserStatus.ACTIVE,
+        outlet: { status: 'ACTIVE', tenant: { status: 'ACTIVE' } },
+      },
+      select: {
+        role: true,
+        isDefault: true,
+        outlet: {
+          select: { id: true, name: true, code: true, tenantId: true },
+        },
+      },
+      orderBy: [{ isDefault: 'desc' }, { outlet: { name: 'asc' } }],
+    });
   }
 
   async logout(token?: string) {
@@ -86,9 +112,38 @@ export class AuthService {
     }
   }
 
-  private async issueSession(userId: string, email: string, role: string) {
+  private async issueSession(
+    userId: string,
+    email: string,
+    role: string,
+    preferredOutletId?: string,
+  ) {
+    const membership =
+      role === Role.SUPER_ADMIN
+        ? null
+        : await this.prisma.outletMembership.findFirst({
+            where: {
+              userId,
+              status: UserStatus.ACTIVE,
+              ...(preferredOutletId ? { outletId: preferredOutletId } : {}),
+              outlet: {
+                status: 'ACTIVE',
+                tenant: { status: 'ACTIVE' },
+              },
+            },
+            orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+            select: { outletId: true, role: true },
+          });
+    if (role !== Role.SUPER_ADMIN && !membership) {
+      throw new UnauthorizedException('User has no active outlet');
+    }
     const accessToken = await this.jwt.signAsync(
-      { sub: userId, email, role },
+      {
+        sub: userId,
+        email,
+        role: membership?.role ?? role,
+        outletId: membership?.outletId ?? null,
+      },
       {
         secret: this.config.getOrThrow('JWT_ACCESS_SECRET'),
         expiresIn: ACCESS_SECONDS,
@@ -96,7 +151,7 @@ export class AuthService {
     );
     const jti = randomUUID();
     const refreshToken = await this.jwt.signAsync(
-      { sub: userId, jti },
+      { sub: userId, jti, outletId: membership?.outletId ?? null },
       {
         secret: this.config.getOrThrow('JWT_REFRESH_SECRET'),
         expiresIn: REFRESH_SECONDS,

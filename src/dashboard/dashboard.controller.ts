@@ -6,29 +6,33 @@ import { RolesGuard } from '../common/roles.guard';
 import { jakartaDayRange } from '../common/dates';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportsService } from '../reports/reports.service';
+import { AuthUser } from '../common/auth-user';
+import { CurrentUser } from '../common/current-user.decorator';
+import { requireOutlet } from '../common/outlet-context';
 
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.OWNER)
+@Roles(Role.OWNER, Role.MANAGER)
 export class DashboardController {
   constructor(
     private readonly reports: ReportsService,
     private readonly prisma: PrismaService,
   ) {}
   @Get()
-  async get() {
+  async get(@CurrentUser() user: AuthUser) {
+    const outletId = requireOutlet(user);
     const { start, end } = jakartaDayRange();
     const [summary, recentTransactions, topProducts, payments] =
       await Promise.all([
-        this.reports.summary(),
+        this.reports.summary(outletId),
         this.prisma.transaction.findMany({
-          where: { status: TransactionStatus.PAID },
+          where: { outletId, status: TransactionStatus.PAID },
           take: 5,
           orderBy: { paidAt: 'desc' },
           include: { cashier: { select: { name: true } } },
         }),
-        this.reports.products(),
-        this.reports.payments(),
+        this.reports.products(outletId),
+        this.reports.payments(outletId),
       ]);
     return {
       data: {

@@ -1,6 +1,7 @@
-# Seblak POS Backend
+# DagoraApp Backend
 
-NestJS REST API untuk Saung Sunja POS. Dokumentasi setup utama tersedia
+NestJS REST API multi-tenant untuk DagoraApp. Setiap merchant/outlet memiliki
+data, pengguna, branding, dan fee platform yang terisolasi. Dokumentasi setup utama tersedia
 di `../README.md` dan kontrak bisnis lengkap di `../SEBLAK_POS_BRD_ERD.md`.
 
 Endpoint base: `/api/v1`.

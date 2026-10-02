@@ -5,6 +5,9 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
+  FeeLedgerStatus,
+  FeeLedgerType,
+  FeeType,
   KitchenStatus,
   PaymentMethod,
   Prisma,
@@ -18,6 +21,7 @@ import {
   ListTransactionsDto,
 } from './transaction.dto';
 import { calculateTotals } from './calculation';
+import { calculatePlatformFee } from './fees';
 
 const includeDetail = {
   items: true,
@@ -29,9 +33,14 @@ const includeDetail = {
 export class TransactionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(cashierId: string, dto: CreateTransactionDto) {
+  async create(outletId: string, cashierId: string, dto: CreateTransactionDto) {
     const existing = await this.prisma.transaction.findUnique({
-      where: { clientTransactionId: dto.clientTransactionId },
+      where: {
+        outletId_clientTransactionId: {
+          outletId,
+          clientTransactionId: dto.clientTransactionId,
+        },
+      },
       include: includeDetail,
     });
     if (existing) return existing;
@@ -48,19 +57,27 @@ export class TransactionsService {
       return await this.prisma.$transaction(
         async (tx) => {
           const duplicate = await tx.transaction.findUnique({
-            where: { clientTransactionId: dto.clientTransactionId },
+            where: {
+              outletId_clientTransactionId: {
+                outletId,
+                clientTransactionId: dto.clientTransactionId,
+              },
+            },
             include: includeDetail,
           });
           if (duplicate) return duplicate;
 
           const [settings, products] = await Promise.all([
             tx.storeSettings.upsert({
-              where: { id: 'default' },
-              create: { id: 'default' },
+              where: { outletId },
+              create: { id: `outlet-${outletId}`, outletId },
               update: {},
             }),
             tx.product.findMany({
-              where: { id: { in: dto.items.map((item) => item.productId) } },
+              where: {
+                outletId,
+                id: { in: dto.items.map((item) => item.productId) },
+              },
               include: { category: true },
             }),
           ]);
@@ -131,6 +148,7 @@ export class TransactionsService {
             const updated = await tx.product.updateMany({
               where: {
                 id: line.product.id,
+                outletId,
                 trackStock: true,
                 stock: { gte: line.quantity },
               },
@@ -145,8 +163,14 @@ export class TransactionsService {
 
           const businessDate = this.businessDate();
           const counter = await tx.dailyInvoiceCounter.upsert({
-            where: { businessDate: new Date(`${businessDate}T00:00:00.000Z`) },
+            where: {
+              outletId_businessDate: {
+                outletId,
+                businessDate: new Date(`${businessDate}T00:00:00.000Z`),
+              },
+            },
             create: {
+              outletId,
               businessDate: new Date(`${businessDate}T00:00:00.000Z`),
               lastSequence: 1,
             },
@@ -154,8 +178,26 @@ export class TransactionsService {
           });
           const invoiceNo = `SBL-${businessDate.replaceAll('-', '')}-${String(counter.lastSequence).padStart(4, '0')}`;
 
-          return tx.transaction.create({
+          const now = new Date();
+          const feeConfig = await tx.feeConfig.findFirst({
+            where: {
+              outletId,
+              effectiveFrom: { lte: now },
+              OR: [{ effectiveTo: null }, { effectiveTo: { gt: now } }],
+            },
+            orderBy: { effectiveFrom: 'desc' },
+          });
+          const feeType = feeConfig?.type ?? FeeType.NONE;
+          const fee = calculatePlatformFee(
+            total,
+            feeType,
+            feeConfig?.fixedAmount ?? 0,
+            Number(feeConfig?.percentage ?? 0),
+          );
+
+          const created = await tx.transaction.create({
             data: {
+              outletId,
               clientTransactionId: dto.clientTransactionId,
               invoiceNo,
               cashierId,
@@ -164,6 +206,10 @@ export class TransactionsService {
               tax,
               taxPercentage,
               total,
+              platformFeeType: feeType,
+              platformFeeFixed: fee.fixedFee,
+              platformFeePercentage: fee.percentage,
+              platformFeeAmount: fee.amount,
               customerName: dto.customerName.trim(),
               orderType: dto.orderType,
               spicyLevel: dto.spicyLevel,
@@ -182,6 +228,7 @@ export class TransactionsService {
               receiptPaperSize: settings.receiptPaperSize,
               items: {
                 create: lines.map((line) => ({
+                  outletId,
                   productId: line.product.id,
                   productName: line.product.name,
                   categoryId: line.product.category.id,
@@ -197,6 +244,19 @@ export class TransactionsService {
             },
             include: includeDetail,
           });
+          if (fee.amount > 0) {
+            await tx.feeLedger.create({
+              data: {
+                outletId,
+                transactionId: created.id,
+                type: FeeLedgerType.CHARGE,
+                status: FeeLedgerStatus.PENDING,
+                amount: fee.amount,
+                description: `Fee transaksi ${invoiceNo}`,
+              },
+            });
+          }
+          return created;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -206,7 +266,12 @@ export class TransactionsService {
         error.code === 'P2002'
       ) {
         const winner = await this.prisma.transaction.findUnique({
-          where: { clientTransactionId: dto.clientTransactionId },
+          where: {
+            outletId_clientTransactionId: {
+              outletId,
+              clientTransactionId: dto.clientTransactionId,
+            },
+          },
           include: includeDetail,
         });
         if (winner) return winner;
@@ -219,10 +284,11 @@ export class TransactionsService {
     }
   }
 
-  async list(query: ListTransactionsDto) {
+  async list(outletId: string, query: ListTransactionsDto) {
     const safePage = query.page;
     const safeLimit = query.limit;
     const where: Prisma.TransactionWhereInput = {
+      outletId,
       status: query.status,
       cashierId: query.cashierId,
       paymentMethod: query.paymentMethod,
@@ -258,22 +324,23 @@ export class TransactionsService {
     };
   }
 
-  async find(id: string) {
-    const transaction = await this.prisma.transaction.findUnique({
-      where: { id },
+  async find(outletId: string, id: string) {
+    const transaction = await this.prisma.transaction.findFirst({
+      where: { id, outletId },
       include: includeDetail,
     });
     if (!transaction) throw new NotFoundException('Transaction not found');
     return transaction;
   }
 
-  async kitchen(query: ListKitchenOrdersDto) {
+  async kitchen(outletId: string, query: ListKitchenOrdersDto) {
     const completedRange =
       query.status === KitchenStatus.COMPLETED
         ? jakartaRange(this.businessDate(), this.businessDate())
         : undefined;
     return this.prisma.transaction.findMany({
       where: {
+        outletId,
         status: TransactionStatus.PAID,
         kitchenStatus: query.status,
         kitchenCompletedAt: completedRange,
@@ -287,16 +354,20 @@ export class TransactionsService {
     });
   }
 
-  async completeKitchenItem(transactionId: string, itemId: string) {
+  async completeKitchenItem(
+    outletId: string,
+    transactionId: string,
+    itemId: string,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const transaction = await tx.transaction.findFirst({
-        where: { id: transactionId, status: TransactionStatus.PAID },
+        where: { id: transactionId, outletId, status: TransactionStatus.PAID },
         select: { id: true },
       });
       if (!transaction) throw new NotFoundException('Kitchen order not found');
 
       const item = await tx.transactionItem.findFirst({
-        where: { id: itemId, transactionId },
+        where: { id: itemId, transactionId, outletId },
         select: { id: true },
       });
       if (!item) throw new NotFoundException('Kitchen order item not found');
@@ -305,6 +376,7 @@ export class TransactionsService {
         where: {
           id: itemId,
           transactionId,
+          outletId,
           kitchenStatus: KitchenStatus.PENDING,
         },
         data: {
@@ -313,7 +385,11 @@ export class TransactionsService {
         },
       });
       const remaining = await tx.transactionItem.count({
-        where: { transactionId, kitchenStatus: KitchenStatus.PENDING },
+        where: {
+          transactionId,
+          outletId,
+          kitchenStatus: KitchenStatus.PENDING,
+        },
       });
       if (remaining === 0) {
         await tx.transaction.update({
@@ -331,16 +407,20 @@ export class TransactionsService {
     });
   }
 
-  async completeKitchenOrder(transactionId: string) {
+  async completeKitchenOrder(outletId: string, transactionId: string) {
     return this.prisma.$transaction(async (tx) => {
       const transaction = await tx.transaction.findFirst({
-        where: { id: transactionId, status: TransactionStatus.PAID },
+        where: { id: transactionId, outletId, status: TransactionStatus.PAID },
         select: { id: true },
       });
       if (!transaction) throw new NotFoundException('Kitchen order not found');
       const completedAt = new Date();
       await tx.transactionItem.updateMany({
-        where: { transactionId, kitchenStatus: KitchenStatus.PENDING },
+        where: {
+          transactionId,
+          outletId,
+          kitchenStatus: KitchenStatus.PENDING,
+        },
         data: { kitchenStatus: KitchenStatus.COMPLETED, completedAt },
       });
       return tx.transaction.update({
@@ -354,16 +434,16 @@ export class TransactionsService {
     });
   }
 
-  async void(id: string, ownerId: string, reason: string) {
+  async void(outletId: string, id: string, ownerId: string, reason: string) {
     return this.prisma.$transaction(
       async (tx) => {
-        const transaction = await tx.transaction.findUnique({
-          where: { id },
+        const transaction = await tx.transaction.findFirst({
+          where: { id, outletId },
           include: { items: true },
         });
         if (!transaction) throw new NotFoundException('Transaction not found');
         const changed = await tx.transaction.updateMany({
-          where: { id, status: TransactionStatus.PAID },
+          where: { id, outletId, status: TransactionStatus.PAID },
           data: {
             status: TransactionStatus.VOID,
             voidedAt: new Date(),
@@ -379,7 +459,7 @@ export class TransactionsService {
         for (const item of transaction.items) {
           if (item.trackStock && item.productId) {
             const restored = await tx.product.updateMany({
-              where: { id: item.productId },
+              where: { id: item.productId, outletId },
               data: { stock: { increment: item.quantity } },
             });
             if (restored.count !== 1)
@@ -387,6 +467,18 @@ export class TransactionsService {
                 'Tracked product could not be restored',
               );
           }
+        }
+        if (transaction.platformFeeAmount > 0) {
+          await tx.feeLedger.create({
+            data: {
+              outletId,
+              transactionId: transaction.id,
+              type: FeeLedgerType.REVERSAL,
+              status: FeeLedgerStatus.PENDING,
+              amount: -transaction.platformFeeAmount,
+              description: `Reversal fee transaksi ${transaction.invoiceNo}`,
+            },
+          });
         }
         return tx.transaction.findUniqueOrThrow({
           where: { id },

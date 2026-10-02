@@ -9,17 +9,35 @@ import { hash } from 'bcryptjs';
 import { masterCategories, masterProducts } from './master-product.seed';
 
 const prisma = new PrismaClient();
+const DEFAULT_TENANT_ID = '10000000-0000-4000-8000-000000000001';
+const DEFAULT_OUTLET_ID = '10000000-0000-4000-8000-000000000002';
 
 const wait = (milliseconds: number) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function main() {
+  await prisma.tenant.upsert({
+    where: { id: DEFAULT_TENANT_ID },
+    create: {
+      id: DEFAULT_TENANT_ID,
+      name: 'Saung Sunja',
+      slug: 'saung-sunja',
+      outlets: {
+        create: {
+          id: DEFAULT_OUTLET_ID,
+          name: 'Saung Sunja',
+          code: 'SUNJA-01',
+        },
+      },
+    },
+    update: { name: 'Saung Sunja' },
+  });
   const email = (
     process.env.SEED_OWNER_EMAIL ?? 'owner@mail.com'
   ).toLowerCase();
   const password = process.env.SEED_OWNER_PASSWORD ?? '12345678';
   const passwordHash = await hash(password, 10);
-  await prisma.user.upsert({
+  const owner = await prisma.user.upsert({
     where: { email },
     create: {
       name: 'Owner',
@@ -35,14 +53,25 @@ async function main() {
       status: UserStatus.ACTIVE,
     },
   });
+  await prisma.outletMembership.upsert({
+    where: { userId_outletId: { userId: owner.id, outletId: DEFAULT_OUTLET_ID } },
+    create: {
+      userId: owner.id,
+      outletId: DEFAULT_OUTLET_ID,
+      role: Role.OWNER,
+      isDefault: true,
+    },
+    update: { role: Role.OWNER, isDefault: true },
+  });
   await prisma.storeSettings.upsert({
     where: { id: 'default' },
     create: {
       id: 'default',
+      outletId: DEFAULT_OUTLET_ID,
       storeName: 'Saung Sunja',
       receiptFooter: 'Terima kasih sudah mampir!',
     },
-    update: { storeName: 'Saung Sunja' },
+    update: { outletId: DEFAULT_OUTLET_ID, storeName: 'Saung Sunja' },
   });
   const categoryIds = new Map<string, string>();
 
@@ -51,11 +80,13 @@ async function main() {
       where: { id: category.id },
       create: {
         id: category.id,
+        outletId: DEFAULT_OUTLET_ID,
         name: category.name,
         sortOrder: category.sortOrder,
         isActive: true,
       },
       update: {
+        outletId: DEFAULT_OUTLET_ID,
         name: category.name,
         sortOrder: category.sortOrder,
         isActive: true,
@@ -78,8 +109,11 @@ async function main() {
       : PricingType.FIXED;
 
     await prisma.product.upsert({
-      where: { sku: product.sku },
+      where: {
+        outletId_sku: { outletId: DEFAULT_OUTLET_ID, sku: product.sku },
+      },
       create: {
+        outletId: DEFAULT_OUTLET_ID,
         categoryId,
         name: product.name,
         sku: product.sku,
@@ -89,6 +123,7 @@ async function main() {
         isActive: true,
       },
       update: {
+        outletId: DEFAULT_OUTLET_ID,
         categoryId,
         name: product.name,
         pricingType,
@@ -100,8 +135,28 @@ async function main() {
   }
 
   await prisma.product.deleteMany({
-    where: { sku: 'SBL-ORIGINAL' },
+    where: { outletId: DEFAULT_OUTLET_ID, sku: 'SBL-ORIGINAL' },
   });
+
+  const superAdminEmail = process.env.SEED_SUPER_ADMIN_EMAIL?.trim().toLowerCase();
+  const superAdminPassword = process.env.SEED_SUPER_ADMIN_PASSWORD;
+  if (superAdminEmail && superAdminPassword) {
+    await prisma.user.upsert({
+      where: { email: superAdminEmail },
+      create: {
+        name: 'Super Admin',
+        email: superAdminEmail,
+        passwordHash: await hash(superAdminPassword, 10),
+        role: Role.SUPER_ADMIN,
+        status: UserStatus.ACTIVE,
+      },
+      update: {
+        passwordHash: await hash(superAdminPassword, 10),
+        role: Role.SUPER_ADMIN,
+        status: UserStatus.ACTIVE,
+      },
+    });
+  }
   await prisma.category.deleteMany({
     where: {
       id: '00000000-0000-4000-8000-000000000001',

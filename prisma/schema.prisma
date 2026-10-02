@@ -8,8 +8,41 @@ datasource db {
 }
 
 enum Role {
+  SUPER_ADMIN
   OWNER
+  MANAGER
   CASHIER
+  KITCHEN
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum OutletStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum FeeType {
+  NONE
+  FIXED
+  PERCENTAGE
+  HYBRID
+}
+
+enum FeeLedgerType {
+  CHARGE
+  REVERSAL
+  ADJUSTMENT
+}
+
+enum FeeLedgerStatus {
+  PENDING
+  INVOICED
+  PAID
+  VOID
 }
 
 enum UserStatus {
@@ -61,18 +94,100 @@ enum ReceiptPaperSize {
 }
 
 model User {
-  id                 String         @id @default(uuid()) @db.Uuid
-  name               String         @db.VarChar(100)
-  email              String         @unique @db.VarChar(254)
+  id                 String             @id @default(uuid()) @db.Uuid
+  name               String             @db.VarChar(100)
+  email              String             @unique @db.VarChar(254)
   passwordHash       String
   role               Role
-  status             UserStatus     @default(ACTIVE)
-  createdAt          DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
+  status             UserStatus         @default(ACTIVE)
+  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @db.Timestamptz(3)
   refreshTokens      RefreshToken[]
-  transactions       Transaction[]  @relation("CashierTransactions")
-  voidedTransactions Transaction[]  @relation("VoidedTransactions")
+  transactions       Transaction[]      @relation("CashierTransactions")
+  voidedTransactions Transaction[]      @relation("VoidedTransactions")
   expenses           Expense[]
+  outletMemberships  OutletMembership[]
+}
+
+model Tenant {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String       @db.VarChar(100)
+  slug      String       @unique @db.VarChar(80)
+  status    TenantStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime     @updatedAt @db.Timestamptz(3)
+  outlets   Outlet[]
+}
+
+model Outlet {
+  id               String                @id @default(uuid()) @db.Uuid
+  tenantId         String                @db.Uuid
+  name             String                @db.VarChar(100)
+  code             String                @db.VarChar(50)
+  status           OutletStatus          @default(ACTIVE)
+  timezone         String                @default("Asia/Jakarta") @db.VarChar(50)
+  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @db.Timestamptz(3)
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships      OutletMembership[]
+  categories       Category[]
+  products         Product[]
+  transactions     Transaction[]
+  transactionItems TransactionItem[]
+  expenses         Expense[]
+  settings         StoreSettings?
+  invoiceCounters  DailyInvoiceCounter[]
+  feeConfigs       FeeConfig[]
+  feeLedgers       FeeLedger[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+}
+
+model OutletMembership {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String     @db.Uuid
+  outletId  String     @db.Uuid
+  role      Role
+  status    UserStatus @default(ACTIVE)
+  isDefault Boolean    @default(false)
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime   @updatedAt @db.Timestamptz(3)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outlet    Outlet     @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, outletId])
+  @@index([outletId, role])
+}
+
+model FeeConfig {
+  id            String    @id @default(uuid()) @db.Uuid
+  outletId      String    @db.Uuid
+  type          FeeType   @default(NONE)
+  fixedAmount   Int       @default(0)
+  percentage    Decimal   @default(0) @db.Decimal(7, 4)
+  effectiveFrom DateTime  @default(now()) @db.Timestamptz(3)
+  effectiveTo   DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  outlet        Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, effectiveFrom, effectiveTo])
+}
+
+model FeeLedger {
+  id            String          @id @default(uuid()) @db.Uuid
+  outletId      String          @db.Uuid
+  transactionId String?         @db.Uuid
+  type          FeeLedgerType
+  amount        Int
+  status        FeeLedgerStatus @default(PENDING)
+  description   String?         @db.VarChar(500)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  outlet        Outlet          @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  transaction   Transaction?    @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([outletId, status, createdAt])
+  @@index([transactionId])
 }
 
 model RefreshToken {
@@ -89,6 +204,7 @@ model RefreshToken {
 
 model Category {
   id          String    @id @default(uuid()) @db.Uuid
+  outletId    String    @db.Uuid
   name        String    @db.VarChar(100)
   description String?   @db.VarChar(500)
   sortOrder   Int       @default(0)
@@ -96,13 +212,17 @@ model Category {
   createdAt   DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
   products    Product[]
+  outlet      Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, isActive, sortOrder])
 }
 
 model Product {
   id               String            @id @default(uuid()) @db.Uuid
+  outletId         String            @db.Uuid
   categoryId       String            @db.Uuid
   name             String            @db.VarChar(100)
-  sku              String            @unique @db.VarChar(50)
+  sku              String            @db.VarChar(50)
   pricingType      PricingType
   price            Int
   stock            Int?
@@ -112,58 +232,70 @@ model Product {
   createdAt        DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
   category         Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  outlet           Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
   transactionItems TransactionItem[]
 
-  @@index([categoryId, isActive])
+  @@unique([outletId, sku])
+  @@index([outletId, categoryId, isActive])
 }
 
 model Transaction {
-  id                  String            @id @default(uuid()) @db.Uuid
-  clientTransactionId String            @unique @db.Uuid
-  invoiceNo           String            @unique @db.VarChar(32)
-  cashierId           String            @db.Uuid
-  subtotal            Int
-  discount            Int               @default(0)
-  tax                 Int               @default(0)
-  taxPercentage       Decimal           @default(0) @db.Decimal(5, 2)
-  total               Int
-  customerName        String            @default("Pelanggan") @db.VarChar(100)
-  orderType           OrderType         @default(DINE_IN)
-  spicyLevel          Int
-  brothLevel          BrothLevel        @default(MEDIUM)
-  tastePreference     TastePreference   @default(SAVORY)
-  notes               String?           @db.VarChar(500)
-  paymentMethod       PaymentMethod
-  amountReceived      Int?
-  changeAmount        Int               @default(0)
-  status              TransactionStatus @default(PAID)
-  kitchenStatus       KitchenStatus     @default(PENDING)
-  kitchenCompletedAt  DateTime?         @db.Timestamptz(3)
-  paidAt              DateTime          @default(now()) @db.Timestamptz(3)
-  voidedAt            DateTime?         @db.Timestamptz(3)
-  voidedById          String?           @db.Uuid
-  voidReason          String?           @db.VarChar(500)
-  storeName           String            @db.VarChar(100)
-  storeAddress        String?           @db.VarChar(500)
-  storePhone          String?           @db.VarChar(50)
-  currency            String            @default("IDR") @db.VarChar(10)
-  receiptHeader       String?           @db.VarChar(500)
-  receiptFooter       String?           @db.VarChar(500)
-  receiptPaperSize    ReceiptPaperSize
-  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt           DateTime          @updatedAt @db.Timestamptz(3)
-  cashier             User              @relation("CashierTransactions", fields: [cashierId], references: [id], onDelete: Restrict)
-  voidedBy            User?             @relation("VoidedTransactions", fields: [voidedById], references: [id], onDelete: Restrict)
-  items               TransactionItem[]
+  id                    String            @id @default(uuid()) @db.Uuid
+  outletId              String            @db.Uuid
+  clientTransactionId   String            @db.Uuid
+  invoiceNo             String            @db.VarChar(32)
+  cashierId             String            @db.Uuid
+  subtotal              Int
+  discount              Int               @default(0)
+  tax                   Int               @default(0)
+  taxPercentage         Decimal           @default(0) @db.Decimal(5, 2)
+  total                 Int
+  platformFeeType       FeeType           @default(NONE)
+  platformFeeFixed      Int               @default(0)
+  platformFeePercentage Decimal           @default(0) @db.Decimal(7, 4)
+  platformFeeAmount     Int               @default(0)
+  customerName          String            @default("Pelanggan") @db.VarChar(100)
+  orderType             OrderType         @default(DINE_IN)
+  spicyLevel            Int
+  brothLevel            BrothLevel        @default(MEDIUM)
+  tastePreference       TastePreference   @default(SAVORY)
+  notes                 String?           @db.VarChar(500)
+  paymentMethod         PaymentMethod
+  amountReceived        Int?
+  changeAmount          Int               @default(0)
+  status                TransactionStatus @default(PAID)
+  kitchenStatus         KitchenStatus     @default(PENDING)
+  kitchenCompletedAt    DateTime?         @db.Timestamptz(3)
+  paidAt                DateTime          @default(now()) @db.Timestamptz(3)
+  voidedAt              DateTime?         @db.Timestamptz(3)
+  voidedById            String?           @db.Uuid
+  voidReason            String?           @db.VarChar(500)
+  storeName             String            @db.VarChar(100)
+  storeAddress          String?           @db.VarChar(500)
+  storePhone            String?           @db.VarChar(50)
+  currency              String            @default("IDR") @db.VarChar(10)
+  receiptHeader         String?           @db.VarChar(500)
+  receiptFooter         String?           @db.VarChar(500)
+  receiptPaperSize      ReceiptPaperSize
+  createdAt             DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @db.Timestamptz(3)
+  cashier               User              @relation("CashierTransactions", fields: [cashierId], references: [id], onDelete: Restrict)
+  voidedBy              User?             @relation("VoidedTransactions", fields: [voidedById], references: [id], onDelete: Restrict)
+  items                 TransactionItem[]
+  outlet                Outlet            @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  feeLedgers            FeeLedger[]
 
-  @@index([paidAt, status])
-  @@index([cashierId, paidAt])
-  @@index([paymentMethod, paidAt])
-  @@index([kitchenStatus, createdAt])
+  @@unique([outletId, invoiceNo])
+  @@unique([outletId, clientTransactionId])
+  @@index([outletId, paidAt, status])
+  @@index([outletId, cashierId, paidAt])
+  @@index([outletId, paymentMethod, paidAt])
+  @@index([outletId, kitchenStatus, createdAt])
 }
 
 model TransactionItem {
   id            String        @id @default(uuid()) @db.Uuid
+  outletId      String        @db.Uuid
   transactionId String        @db.Uuid
   productId     String?       @db.Uuid
   productName   String        @db.VarChar(100)
@@ -180,13 +312,15 @@ model TransactionItem {
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
   transaction   Transaction   @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   product       Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  outlet        Outlet        @relation(fields: [outletId], references: [id], onDelete: Restrict)
 
-  @@index([transactionId])
+  @@index([outletId, transactionId])
   @@index([productId])
 }
 
 model Expense {
   id          String   @id @default(uuid()) @db.Uuid
+  outletId    String   @db.Uuid
   createdById String   @db.Uuid
   description String   @db.VarChar(500)
   amount      Int
@@ -195,15 +329,18 @@ model Expense {
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
   createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  outlet      Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
 
-  @@index([expenseDate])
+  @@index([outletId, expenseDate])
 }
 
 model StoreSettings {
   id               String           @id @default("default")
+  outletId         String           @unique @db.Uuid
   storeName        String           @default("Saung Sunja") @db.VarChar(100)
   logoUrl          String?          @db.VarChar(500)
   faviconUrl       String?          @db.VarChar(500)
+  primaryColor     String           @default("#0B63F6") @db.VarChar(7)
   address          String?          @db.VarChar(500)
   phone            String?          @db.VarChar(50)
   currency         String           @default("IDR") @db.VarChar(10)
@@ -214,10 +351,15 @@ model StoreSettings {
   receiptPaperSize ReceiptPaperSize @default(MM58)
   createdAt        DateTime         @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
+  outlet           Outlet           @relation(fields: [outletId], references: [id], onDelete: Cascade)
 }
 
 model DailyInvoiceCounter {
-  businessDate DateTime @id @db.Date
+  outletId     String   @db.Uuid
+  businessDate DateTime @db.Date
   lastSequence Int
   updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+  outlet       Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@id([outletId, businessDate])
 }

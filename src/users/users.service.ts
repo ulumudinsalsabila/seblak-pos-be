@@ -23,32 +23,48 @@ const publicSelect = {
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list() {
-    return this.prisma.user.findMany({
-      select: publicSelect,
-      orderBy: { name: 'asc' },
+  async list(outletId: string) {
+    const memberships = await this.prisma.outletMembership.findMany({
+      where: { outletId },
+      include: { user: { select: publicSelect } },
+      orderBy: { user: { name: 'asc' } },
     });
+    return memberships.map(({ user, role, status }) => ({
+      ...user,
+      role,
+      status,
+    }));
   }
 
-  async find(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      select: publicSelect,
+  async find(outletId: string, id: string) {
+    const membership = await this.prisma.outletMembership.findFirst({
+      where: { outletId, userId: id },
+      include: { user: { select: publicSelect } },
     });
-    if (!user) throw new NotFoundException('User not found');
-    return user;
+    if (!membership) throw new NotFoundException('User not found');
+    return {
+      ...membership.user,
+      role: membership.role,
+      status: membership.status,
+    };
   }
 
-  async create(dto: CreateUserDto) {
+  async create(outletId: string, dto: CreateUserDto) {
     try {
-      return await this.prisma.user.create({
-        data: {
-          name: dto.name.trim(),
-          email: dto.email.trim().toLowerCase(),
-          passwordHash: await hash(dto.password, 10),
-          role: dto.role,
-        },
-        select: publicSelect,
+      return await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            name: dto.name.trim(),
+            email: dto.email.trim().toLowerCase(),
+            passwordHash: await hash(dto.password, 10),
+            role: dto.role,
+            outletMemberships: {
+              create: { outletId, role: dto.role, isDefault: true },
+            },
+          },
+          select: publicSelect,
+        });
+        return user;
       });
     } catch (error) {
       if (
@@ -60,15 +76,20 @@ export class UsersService {
     }
   }
 
-  async update(id: string, dto: UpdateUserDto) {
-    const existing = await this.find(id);
+  async update(outletId: string, id: string, dto: UpdateUserDto) {
+    const existing = await this.find(outletId, id);
     if (
       existing.role === Role.OWNER &&
       existing.status === UserStatus.ACTIVE &&
-      (dto.status === UserStatus.INACTIVE || dto.role === Role.CASHIER)
+      (dto.status === UserStatus.INACTIVE ||
+        (dto.role !== undefined && dto.role !== Role.OWNER))
     ) {
-      const activeOwners = await this.prisma.user.count({
-        where: { role: Role.OWNER, status: UserStatus.ACTIVE },
+      const activeOwners = await this.prisma.outletMembership.count({
+        where: {
+          outletId,
+          role: Role.OWNER,
+          status: UserStatus.ACTIVE,
+        },
       });
       if (activeOwners <= 1)
         throw new UnprocessableEntityException(
@@ -76,16 +97,29 @@ export class UsersService {
         );
     }
     try {
-      return await this.prisma.user.update({
-        where: { id },
-        data: {
-          name: dto.name?.trim(),
-          email: dto.email?.trim().toLowerCase(),
-          role: dto.role,
-          status: dto.status,
-          passwordHash: dto.password ? await hash(dto.password, 10) : undefined,
-        },
-        select: publicSelect,
+      return await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.update({
+          where: { id },
+          data: {
+            name: dto.name?.trim(),
+            email: dto.email?.trim().toLowerCase(),
+            passwordHash: dto.password
+              ? await hash(dto.password, 10)
+              : undefined,
+          },
+          select: publicSelect,
+        });
+        if (dto.role || dto.status) {
+          await tx.outletMembership.update({
+            where: { userId_outletId: { userId: id, outletId } },
+            data: { role: dto.role, status: dto.status },
+          });
+        }
+        return {
+          ...user,
+          role: dto.role ?? existing.role,
+          status: dto.status ?? existing.status,
+        };
       });
     } catch (error) {
       if (
@@ -95,5 +129,32 @@ export class UsersService {
         throw new ConflictException('Email already exists');
       throw error;
     }
+  }
+
+  async remove(outletId: string, id: string, actorId: string) {
+    if (id === actorId) {
+      throw new UnprocessableEntityException(
+        'You cannot delete your own access',
+      );
+    }
+    const existing = await this.find(outletId, id);
+    if (existing.role === Role.OWNER) {
+      const activeOwners = await this.prisma.outletMembership.count({
+        where: {
+          outletId,
+          role: Role.OWNER,
+          status: UserStatus.ACTIVE,
+        },
+      });
+      if (activeOwners <= 1) {
+        throw new UnprocessableEntityException(
+          'At least one active owner is required',
+        );
+      }
+    }
+    await this.prisma.outletMembership.delete({
+      where: { userId_outletId: { userId: id, outletId } },
+    });
+    return { success: true };
   }
 }

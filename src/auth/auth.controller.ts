@@ -14,6 +14,7 @@ import { AuthUser } from '../common/auth-user';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { LoginRateLimitGuard } from '../common/login-rate-limit.guard';
+import { SwitchOutletDto } from './dto/switch-outlet.dto';
 
 const COOKIE = 'seblak_refresh';
 
@@ -59,6 +60,27 @@ export class AuthController {
     await this.auth.logout(request.cookies?.[COOKIE] as string | undefined);
     response.clearCookie(COOKIE, { path: '/api/v1/auth' });
     return { data: { success: true }, meta: null };
+  }
+
+  @Post('switch-outlet')
+  @UseGuards(JwtAuthGuard)
+  async switchOutlet(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SwitchOutletDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const session = await this.auth.switchOutlet(user.id, dto.outletId);
+    this.setCookie(response, session.refreshToken);
+    return {
+      data: { accessToken: session.accessToken, expiresIn: session.expiresIn },
+      meta: null,
+    };
+  }
+
+  @Get('outlets')
+  @UseGuards(JwtAuthGuard)
+  async outlets(@CurrentUser() user: AuthUser) {
+    return { data: await this.auth.outlets(user.id), meta: null };
   }
 
   @Get('me')

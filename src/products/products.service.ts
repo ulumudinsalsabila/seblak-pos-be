@@ -16,9 +16,10 @@ import {
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: ListProductsDto) {
+  async list(outletId: string, query: ListProductsDto) {
     const search = query.search?.trim();
     const where: Prisma.ProductWhereInput = {
+      outletId,
       ...(query.activeOnly === 'true'
         ? { isActive: true, category: { isActive: true } }
         : {}),
@@ -66,20 +67,21 @@ export class ProductsService {
     };
   }
 
-  async find(id: string) {
-    const item = await this.prisma.product.findUnique({
-      where: { id },
+  async find(outletId: string, id: string) {
+    const item = await this.prisma.product.findFirst({
+      where: { id, outletId },
       include: { category: true },
     });
     if (!item) throw new NotFoundException('Product not found');
     return item;
   }
 
-  async create(dto: CreateProductDto) {
-    await this.requireCategory(dto.categoryId);
+  async create(outletId: string, dto: CreateProductDto) {
+    await this.requireCategory(outletId, dto.categoryId);
     try {
       return await this.prisma.product.create({
         data: {
+          outletId,
           categoryId: dto.categoryId,
           name: dto.name.trim(),
           sku: dto.sku.trim().toUpperCase(),
@@ -98,9 +100,9 @@ export class ProductsService {
     }
   }
 
-  async update(id: string, dto: UpdateProductDto) {
-    const existing = await this.find(id);
-    if (dto.categoryId) await this.requireCategory(dto.categoryId);
+  async update(outletId: string, id: string, dto: UpdateProductDto) {
+    const existing = await this.find(outletId, id);
+    if (dto.categoryId) await this.requireCategory(outletId, dto.categoryId);
     const trackStock = dto.trackStock ?? existing.trackStock;
     if (trackStock && (dto.stock ?? existing.stock) === null)
       throw new UnprocessableEntityException(
@@ -128,8 +130,14 @@ export class ProductsService {
     }
   }
 
-  private async requireCategory(id: string) {
-    if (!(await this.prisma.category.findUnique({ where: { id } })))
+  async remove(outletId: string, id: string) {
+    await this.find(outletId, id);
+    await this.prisma.product.delete({ where: { id } });
+    return { success: true };
+  }
+
+  private async requireCategory(outletId: string, id: string) {
+    if (!(await this.prisma.category.findFirst({ where: { id, outletId } })))
       throw new NotFoundException('Category not found');
   }
   private handleUnique(error: unknown) {

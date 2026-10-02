@@ -5,26 +5,50 @@ import { UpdateSettingsDto } from './settings.dto';
 @Injectable()
 export class SettingsService {
   constructor(private readonly prisma: PrismaService) {}
-  get() {
+  get(outletId: string) {
     return this.prisma.storeSettings.upsert({
-      where: { id: 'default' },
-      create: { id: 'default' },
+      where: { outletId },
+      create: { id: `outlet-${outletId}`, outletId },
       update: {},
     });
   }
-  async getBranding() {
+  async getBranding(outletCode?: string) {
+    if (!outletCode) {
+      return {
+        storeName: 'DagoraApp',
+        logoUrl: null,
+        faviconUrl: null,
+        primaryColor: '#0B63F6',
+      };
+    }
     return (
-      (await this.prisma.storeSettings.findUnique({
-        where: { id: 'default' },
-        select: { storeName: true, logoUrl: true, faviconUrl: true },
-      })) ?? { storeName: 'Saung Sunja', logoUrl: null, faviconUrl: null }
+      (await this.prisma.storeSettings.findFirst({
+        where: {
+          outlet: {
+            status: 'ACTIVE',
+            code: outletCode,
+          },
+        },
+        select: {
+          storeName: true,
+          logoUrl: true,
+          faviconUrl: true,
+          primaryColor: true,
+        },
+      })) ?? {
+        storeName: 'DagoraApp',
+        logoUrl: null,
+        faviconUrl: null,
+        primaryColor: '#0B63F6',
+      }
     );
   }
-  update(dto: UpdateSettingsDto) {
+  update(outletId: string, dto: UpdateSettingsDto) {
     return this.prisma.storeSettings.upsert({
-      where: { id: 'default' },
+      where: { outletId },
       create: {
-        id: 'default',
+        id: `outlet-${outletId}`,
+        outletId,
         ...dto,
         storeName: dto.storeName?.trim() ?? 'Saung Sunja',
       },
@@ -37,6 +61,7 @@ export class SettingsService {
           dto.faviconUrl === undefined
             ? undefined
             : dto.faviconUrl?.trim() || null,
+        primaryColor: dto.primaryColor?.toUpperCase(),
         address: dto.address?.trim(),
         phone: dto.phone?.trim(),
         currency: dto.currency?.trim().toUpperCase(),
