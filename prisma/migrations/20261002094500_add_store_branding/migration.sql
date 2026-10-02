@@ -1,0 +1,3 @@
+ALTER TABLE "StoreSettings"
+ADD COLUMN "logoUrl" VARCHAR(500),
+ADD COLUMN "faviconUrl" VARCHAR(500);
