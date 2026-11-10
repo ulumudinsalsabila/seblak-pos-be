@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -13,9 +14,11 @@ import { AuthUser } from '../common/auth-user';
 import { CurrentUser } from '../common/current-user.decorator';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { requireTenant } from '../common/tenant-context';
+import { requireOutlet } from '../common/outlet-context';
 import { InventoryAccessService } from './inventory-access.service';
 import {
   CreateItemConversionDto,
+  ConfigureProductInventoryDto,
   CreateItemDto,
   CreateLocationDto,
   CreateUnitDto,
@@ -207,6 +210,34 @@ export class InventoryController {
       data: await this.inventory.postOpeningBalances(
         requireTenant(user),
         user.id,
+        dto,
+      ),
+      meta: null,
+    };
+  }
+
+  @Get('recipes')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  listRecipes(@CurrentUser() user: AuthUser) {
+    return this.inventory.listProductInventory(
+      requireTenant(user),
+      requireOutlet(user),
+    );
+  }
+
+  @Put('recipes/:productId')
+  @InventoryPermissions(InventoryPermission.MANAGE_INVENTORY_RECIPES)
+  async configureRecipe(
+    @CurrentUser() user: AuthUser,
+    @Param('productId') productId: string,
+    @Body() dto: ConfigureProductInventoryDto,
+  ) {
+    return {
+      data: await this.inventory.configureProductInventory(
+        requireTenant(user),
+        requireOutlet(user),
+        user.id,
+        productId,
         dto,
       ),
       meta: null,

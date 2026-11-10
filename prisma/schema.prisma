@@ -144,6 +144,12 @@ enum InventoryPermission {
   MANAGE_INVENTORY_ITEMS
   MANAGE_INVENTORY_LOCATIONS
   POST_INVENTORY_OPENING
+  MANAGE_INVENTORY_RECIPES
+}
+
+enum ProductInventoryMode {
+  DIRECT
+  RECIPE
 }
 
 model User {
@@ -166,22 +172,25 @@ model User {
 }
 
 model Tenant {
-  id                   String                     @id @default(uuid()) @db.Uuid
-  name                 String                     @db.VarChar(100)
-  slug                 String                     @unique @db.VarChar(80)
-  status               TenantStatus               @default(ACTIVE)
-  createdAt            DateTime                   @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime                   @updatedAt @db.Timestamptz(3)
-  outlets              Outlet[]
-  inventoryUnits       InventoryUnit[]
-  inventoryItems       InventoryItem[]
-  itemUnitConversions  ItemUnitConversion[]
-  stockLocations       StockLocation[]
-  stockBalances        StockBalance[]
-  stockMovements       StockMovement[]
-  inventoryGrants      InventoryPermissionGrant[]
-  inventoryAuditEvents InventoryAuditEvent[]
-  theme                TenantTheme?
+  id                      String                     @id @default(uuid()) @db.Uuid
+  name                    String                     @db.VarChar(100)
+  slug                    String                     @unique @db.VarChar(80)
+  status                  TenantStatus               @default(ACTIVE)
+  createdAt               DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime                   @updatedAt @db.Timestamptz(3)
+  outlets                 Outlet[]
+  inventoryUnits          InventoryUnit[]
+  inventoryItems          InventoryItem[]
+  itemUnitConversions     ItemUnitConversion[]
+  stockLocations          StockLocation[]
+  stockBalances           StockBalance[]
+  stockMovements          StockMovement[]
+  inventoryGrants         InventoryPermissionGrant[]
+  inventoryAuditEvents    InventoryAuditEvent[]
+  productInventoryConfigs ProductInventoryConfig[]
+  inventoryRecipeVersions InventoryRecipeVersion[]
+  inventoryRecipeLines    InventoryRecipeLine[]
+  theme                   TenantTheme?
 }
 
 model TenantTheme {
@@ -296,24 +305,26 @@ model Category {
 }
 
 model Product {
-  id                String            @id @default(uuid()) @db.Uuid
-  outletId          String            @db.Uuid
-  categoryId        String            @db.Uuid
-  name              String            @db.VarChar(100)
-  sku               String            @db.VarChar(50)
+  id                String                   @id @default(uuid()) @db.Uuid
+  outletId          String                   @db.Uuid
+  categoryId        String                   @db.Uuid
+  name              String                   @db.VarChar(100)
+  sku               String                   @db.VarChar(50)
   pricingType       PricingType
   price             Int
   unitCost          Int?
   stock             Int?
   lowStockThreshold Int?
-  trackStock        Boolean           @default(false)
-  imageUrl          String?           @db.VarChar(500)
-  isActive          Boolean           @default(true)
-  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
-  category          Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  outlet            Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  trackStock        Boolean                  @default(false)
+  imageUrl          String?                  @db.VarChar(500)
+  isActive          Boolean                  @default(true)
+  createdAt         DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime                 @updatedAt @db.Timestamptz(3)
+  category          Category                 @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  outlet            Outlet                   @relation(fields: [outletId], references: [id], onDelete: Cascade)
   transactionItems  TransactionItem[]
+  inventoryConfig   ProductInventoryConfig?
+  inventoryRecipes  InventoryRecipeVersion[]
 
   @@unique([outletId, sku])
   @@index([outletId, categoryId, isActive])
@@ -475,22 +486,24 @@ model InventoryUnit {
 }
 
 model InventoryItem {
-  id            String               @id @default(uuid()) @db.Uuid
-  tenantId      String               @db.Uuid
-  sku           String               @db.VarChar(50)
-  name          String               @db.VarChar(150)
-  type          InventoryItemType
-  baseUnitId    String               @db.Uuid
-  reorderPoint  Decimal              @default(0) @db.Decimal(20, 6)
-  allowNegative Boolean              @default(false)
-  isActive      Boolean              @default(true)
-  createdAt     DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime             @updatedAt @db.Timestamptz(3)
-  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  baseUnit      InventoryUnit        @relation(fields: [baseUnitId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  conversions   ItemUnitConversion[]
-  balances      StockBalance[]
-  movements     StockMovement[]
+  id                   String                   @id @default(uuid()) @db.Uuid
+  tenantId             String                   @db.Uuid
+  sku                  String                   @db.VarChar(50)
+  name                 String                   @db.VarChar(150)
+  type                 InventoryItemType
+  baseUnitId           String                   @db.Uuid
+  reorderPoint         Decimal                  @default(0) @db.Decimal(20, 6)
+  allowNegative        Boolean                  @default(false)
+  isActive             Boolean                  @default(true)
+  createdAt            DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                 @updatedAt @db.Timestamptz(3)
+  tenant               Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  baseUnit             InventoryUnit            @relation(fields: [baseUnitId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  conversions          ItemUnitConversion[]
+  balances             StockBalance[]
+  movements            StockMovement[]
+  directProductConfigs ProductInventoryConfig[]
+  recipeLines          InventoryRecipeLine[]
 
   @@unique([tenantId, sku])
   @@unique([id, tenantId])
@@ -519,21 +532,75 @@ model ItemUnitConversion {
   @@index([tenantId, itemId, validTo])
 }
 
+model ProductInventoryConfig {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  tenantId              String                  @db.Uuid
+  productId             String                  @unique @db.Uuid
+  locationId            String                  @db.Uuid
+  mode                  ProductInventoryMode
+  directItemId          String?                 @db.Uuid
+  directQuantity        Decimal?                @db.Decimal(20, 6)
+  activeRecipeVersionId String?                 @unique @db.Uuid
+  createdAt             DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime                @updatedAt @db.Timestamptz(3)
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product               Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
+  location              StockLocation           @relation(fields: [locationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  directItem            InventoryItem?          @relation(fields: [directItemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  activeRecipeVersion   InventoryRecipeVersion? @relation("ActiveRecipe", fields: [activeRecipeVersionId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, locationId])
+  @@index([tenantId, mode])
+}
+
+model InventoryRecipeVersion {
+  id              String                  @id @default(uuid()) @db.Uuid
+  tenantId        String                  @db.Uuid
+  productId       String                  @db.Uuid
+  version         Int
+  notes           String?                 @db.VarChar(500)
+  createdAt       DateTime                @default(now()) @db.Timestamptz(3)
+  tenant          Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product         Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
+  lines           InventoryRecipeLine[]
+  activeForConfig ProductInventoryConfig? @relation("ActiveRecipe")
+
+  @@unique([productId, version])
+  @@unique([id, tenantId])
+  @@index([tenantId, productId, createdAt])
+}
+
+model InventoryRecipeLine {
+  id              String                 @id @default(uuid()) @db.Uuid
+  tenantId        String                 @db.Uuid
+  recipeVersionId String                 @db.Uuid
+  itemId          String                 @db.Uuid
+  quantity        Decimal                @db.Decimal(20, 6)
+  createdAt       DateTime               @default(now()) @db.Timestamptz(3)
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipeVersion   InventoryRecipeVersion @relation(fields: [recipeVersionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  item            InventoryItem          @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([recipeVersionId, itemId])
+  @@index([tenantId, itemId])
+}
+
 model StockLocation {
-  id        String                     @id @default(uuid()) @db.Uuid
-  tenantId  String                     @db.Uuid
-  outletId  String?                    @db.Uuid
-  code      String                     @db.VarChar(50)
-  name      String                     @db.VarChar(100)
-  type      StockLocationType
-  isActive  Boolean                    @default(true)
-  createdAt DateTime                   @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime                   @updatedAt @db.Timestamptz(3)
-  tenant    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  outlet    Outlet?                    @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  balances  StockBalance[]
-  movements StockMovement[]
-  grants    InventoryPermissionGrant[]
+  id             String                     @id @default(uuid()) @db.Uuid
+  tenantId       String                     @db.Uuid
+  outletId       String?                    @db.Uuid
+  code           String                     @db.VarChar(50)
+  name           String                     @db.VarChar(100)
+  type           StockLocationType
+  isActive       Boolean                    @default(true)
+  createdAt      DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime                   @updatedAt @db.Timestamptz(3)
+  tenant         Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outlet         Outlet?                    @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  balances       StockBalance[]
+  movements      StockMovement[]
+  grants         InventoryPermissionGrant[]
+  productConfigs ProductInventoryConfig[]
 
   @@unique([tenantId, code])
   @@unique([id, tenantId])

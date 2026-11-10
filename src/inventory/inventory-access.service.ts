@@ -12,6 +12,7 @@ const roleDefaults: Partial<Record<Role, InventoryPermission[]>> = {
     InventoryPermission.VIEW_INVENTORY_LEDGER,
     InventoryPermission.MANAGE_INVENTORY_ITEMS,
     InventoryPermission.MANAGE_INVENTORY_LOCATIONS,
+    InventoryPermission.MANAGE_INVENTORY_RECIPES,
   ],
   [Role.CASHIER]: [InventoryPermission.VIEW_INVENTORY],
   [Role.KITCHEN]: [InventoryPermission.VIEW_INVENTORY],

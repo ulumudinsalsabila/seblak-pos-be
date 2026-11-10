@@ -1,5 +1,6 @@
 import {
   InventoryItemType,
+  ProductInventoryMode,
   StockLocationType,
   StockMovementType,
   UnitConversionMode,
@@ -167,4 +168,24 @@ export class PostOpeningBalancesDto {
   @ValidateNested({ each: true })
   @Type(() => OpeningBalanceLineDto)
   lines!: OpeningBalanceLineDto[];
+}
+
+export class RecipeLineDto {
+  @IsUUID() itemId!: string;
+  @IsString() @Matches(QUANTITY_PATTERN) quantity!: string;
+}
+
+export class ConfigureProductInventoryDto {
+  @IsEnum(ProductInventoryMode) mode!: ProductInventoryMode;
+  @IsUUID() locationId!: string;
+  @IsOptional() @IsUUID() directItemId?: string;
+  @IsOptional() @IsString() @Matches(QUANTITY_PATTERN) directQuantity?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => RecipeLineDto)
+  lines?: RecipeLineDto[];
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
 }

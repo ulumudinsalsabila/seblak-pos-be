@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   Prisma,
+  ProductInventoryMode,
   StockMovementDirection,
   StockMovementType,
   StockLocationType,
@@ -15,6 +16,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateItemConversionDto,
+  ConfigureProductInventoryDto,
   CreateItemDto,
   CreateLocationDto,
   CreateUnitDto,
@@ -612,6 +614,187 @@ export class InventoryService {
           );
         }
         return { batchId: dto.batchId, movements };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  async listProductInventory(tenantId: string, outletId: string) {
+    const data = await this.prisma.product.findMany({
+      where: { outletId },
+      orderBy: { name: 'asc' },
+      include: {
+        category: { select: { id: true, name: true } },
+        inventoryConfig: {
+          include: {
+            location: true,
+            directItem: { include: { baseUnit: true } },
+            activeRecipeVersion: {
+              include: {
+                lines: {
+                  include: { item: { include: { baseUnit: true } } },
+                  orderBy: { item: { name: 'asc' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const visible = data.filter(
+      (product) =>
+        !product.inventoryConfig ||
+        product.inventoryConfig.tenantId === tenantId,
+    );
+    return { data: visible, meta: { total: visible.length } };
+  }
+
+  async configureProductInventory(
+    tenantId: string,
+    outletId: string,
+    actorId: string,
+    productId: string,
+    dto: ConfigureProductInventoryDto,
+  ) {
+    const [product, location] = await Promise.all([
+      this.prisma.product.findFirst({
+        where: { id: productId, outletId, outlet: { tenantId } },
+      }),
+      this.prisma.stockLocation.findFirst({
+        where: { id: dto.locationId, tenantId, outletId, isActive: true },
+      }),
+    ]);
+    if (!product) throw new NotFoundException('Product not found');
+    if (!location)
+      throw new NotFoundException('Active outlet stock location not found');
+
+    if (dto.mode === ProductInventoryMode.DIRECT) {
+      if (!dto.directItemId || !dto.directQuantity)
+        throw new UnprocessableEntityException(
+          'Direct inventory requires an item and quantity',
+        );
+      const quantity = new Prisma.Decimal(dto.directQuantity);
+      if (quantity.lte(0))
+        throw new UnprocessableEntityException(
+          'Direct quantity must be greater than zero',
+        );
+      const item = await this.prisma.inventoryItem.findFirst({
+        where: { id: dto.directItemId, tenantId, isActive: true },
+      });
+      if (!item) throw new NotFoundException('Active inventory item not found');
+      return this.prisma.$transaction(async (tx) => {
+        const config = await tx.productInventoryConfig.upsert({
+          where: { productId },
+          create: {
+            tenantId,
+            productId,
+            locationId: dto.locationId,
+            mode: dto.mode,
+            directItemId: dto.directItemId,
+            directQuantity: quantity,
+          },
+          update: {
+            locationId: dto.locationId,
+            mode: dto.mode,
+            directItemId: dto.directItemId,
+            directQuantity: quantity,
+            activeRecipeVersionId: null,
+          },
+          include: {
+            location: true,
+            directItem: { include: { baseUnit: true } },
+          },
+        });
+        await this.audit(
+          tx,
+          tenantId,
+          actorId,
+          'PRODUCT_INVENTORY_CONFIGURED',
+          'Product',
+          productId,
+          dto,
+        );
+        return config;
+      });
+    }
+
+    if (!dto.lines?.length)
+      throw new UnprocessableEntityException(
+        'Recipe requires at least one line',
+      );
+    if (new Set(dto.lines.map((line) => line.itemId)).size !== dto.lines.length)
+      throw new UnprocessableEntityException(
+        'Recipe items cannot be duplicated',
+      );
+    const quantities = dto.lines.map(
+      (line) => new Prisma.Decimal(line.quantity),
+    );
+    if (quantities.some((quantity) => quantity.lte(0)))
+      throw new UnprocessableEntityException(
+        'Recipe quantities must be greater than zero',
+      );
+    const itemCount = await this.prisma.inventoryItem.count({
+      where: {
+        tenantId,
+        isActive: true,
+        id: { in: dto.lines.map((line) => line.itemId) },
+      },
+    });
+    if (itemCount !== dto.lines.length)
+      throw new NotFoundException('One or more recipe items were not found');
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const latest = await tx.inventoryRecipeVersion.aggregate({
+          where: { productId },
+          _max: { version: true },
+        });
+        const recipe = await tx.inventoryRecipeVersion.create({
+          data: {
+            tenantId,
+            productId,
+            version: (latest._max.version ?? 0) + 1,
+            notes: dto.notes?.trim(),
+            lines: {
+              create: dto.lines!.map((line, index) => ({
+                tenantId,
+                itemId: line.itemId,
+                quantity: quantities[index],
+              })),
+            },
+          },
+        });
+        const config = await tx.productInventoryConfig.upsert({
+          where: { productId },
+          create: {
+            tenantId,
+            productId,
+            locationId: dto.locationId,
+            mode: dto.mode,
+            activeRecipeVersionId: recipe.id,
+          },
+          update: {
+            locationId: dto.locationId,
+            mode: dto.mode,
+            directItemId: null,
+            directQuantity: null,
+            activeRecipeVersionId: recipe.id,
+          },
+        });
+        await this.audit(
+          tx,
+          tenantId,
+          actorId,
+          'RECIPE_VERSION_PUBLISHED',
+          'InventoryRecipeVersion',
+          recipe.id,
+          {
+            productId,
+            version: recipe.version,
+            ...dto,
+          },
+        );
+        return { ...config, recipe };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );

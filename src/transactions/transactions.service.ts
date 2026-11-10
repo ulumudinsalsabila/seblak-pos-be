@@ -11,10 +11,14 @@ import {
   KitchenStatus,
   PaymentMethod,
   Prisma,
+  ProductInventoryMode,
+  StockMovementDirection,
+  StockMovementType,
   TransactionStatus,
 } from '@prisma/client';
 import { jakartaRange } from '../common/dates';
 import { PrismaService } from '../prisma/prisma.service';
+import { InventoryLedgerService } from '../inventory/inventory-ledger.service';
 import {
   CreateTransactionDto,
   ListKitchenOrdersDto,
@@ -48,7 +52,10 @@ const includeDetail = {
 
 @Injectable()
 export class TransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly inventoryLedger: InventoryLedgerService,
+  ) {}
 
   async create(outletId: string, cashierId: string, dto: CreateTransactionDto) {
     const existing = await this.prisma.transaction.findUnique({
@@ -84,7 +91,7 @@ export class TransactionsService {
           });
           if (duplicate) return duplicate;
 
-          const [settings, products] = await Promise.all([
+          const [settings, products, outlet] = await Promise.all([
             tx.storeSettings.upsert({
               where: { outletId },
               create: { id: `outlet-${outletId}`, outletId },
@@ -97,7 +104,23 @@ export class TransactionsService {
               },
               include: { category: true },
             }),
+            tx.outlet.findUniqueOrThrow({
+              where: { id: outletId },
+              select: { tenantId: true },
+            }),
           ]);
+          const inventoryConfigs = await tx.productInventoryConfig.findMany({
+            where: {
+              tenantId: outlet.tenantId,
+              productId: { in: products.map((product) => product.id) },
+            },
+            include: {
+              activeRecipeVersion: { include: { lines: true } },
+            },
+          });
+          const inventoryConfigMap = new Map(
+            inventoryConfigs.map((config) => [config.productId, config]),
+          );
           const productMap = new Map(
             products.map((product) => [product.id, product]),
           );
@@ -208,6 +231,7 @@ export class TransactionsService {
           }
 
           for (const line of lines) {
+            if (inventoryConfigMap.has(line.product.id)) continue;
             if (!line.product.trackStock) continue;
             const updated = await tx.product.updateMany({
               where: {
@@ -318,6 +342,68 @@ export class TransactionsService {
             },
             include: includeDetail,
           });
+          const createdItemMap = new Map(
+            created.items
+              .filter((item) => item.productId)
+              .map((item) => [item.productId!, item]),
+          );
+          const movementPlans = lines.flatMap((line) => {
+            const config = inventoryConfigMap.get(line.product.id);
+            const transactionItem = createdItemMap.get(line.product.id);
+            if (!config || !transactionItem) return [];
+            if (
+              config.mode === ProductInventoryMode.DIRECT &&
+              config.directItemId &&
+              config.directQuantity
+            ) {
+              return [
+                {
+                  locationId: config.locationId,
+                  itemId: config.directItemId,
+                  quantity: config.directQuantity.mul(line.quantity),
+                  sourceType: 'SALE_DIRECT',
+                  sourceId: transactionItem.id,
+                  notes: `Sale ${created.invoiceNo}`,
+                },
+              ];
+            }
+            if (
+              config.mode === ProductInventoryMode.RECIPE &&
+              config.activeRecipeVersion
+            ) {
+              return config.activeRecipeVersion.lines.map((recipeLine) => ({
+                locationId: config.locationId,
+                itemId: recipeLine.itemId,
+                quantity: recipeLine.quantity.mul(line.quantity),
+                sourceType: 'SALE_RECIPE',
+                sourceId: transactionItem.id,
+                notes: `Sale ${created.invoiceNo}; recipe v${config.activeRecipeVersion!.version}`,
+              }));
+            }
+            throw new UnprocessableEntityException(
+              `Inventory configuration for ${line.product.name} is incomplete`,
+            );
+          });
+          movementPlans.sort((left, right) =>
+            `${left.locationId}:${left.itemId}`.localeCompare(
+              `${right.locationId}:${right.itemId}`,
+            ),
+          );
+          for (const plan of movementPlans) {
+            await this.inventoryLedger.post(tx, {
+              tenantId: outlet.tenantId,
+              locationId: plan.locationId,
+              itemId: plan.itemId,
+              type: StockMovementType.SALE_CONSUMED,
+              direction: StockMovementDirection.OUT,
+              quantity: plan.quantity,
+              sourceType: plan.sourceType,
+              sourceId: plan.sourceId,
+              idempotencyKey: `sale:${created.id}:${plan.sourceId}:${plan.itemId}`,
+              notes: plan.notes,
+              actorId: cashierId,
+            });
+          }
           if (fee.amount > 0) {
             await tx.feeLedger.create({
               data: {
@@ -513,7 +599,7 @@ export class TransactionsService {
       async (tx) => {
         const transaction = await tx.transaction.findFirst({
           where: { id, outletId },
-          include: { items: true },
+          include: { items: true, outlet: { select: { tenantId: true } } },
         });
         if (!transaction) throw new NotFoundException('Transaction not found');
         const changed = await tx.transaction.updateMany({
@@ -531,6 +617,33 @@ export class TransactionsService {
             message: 'Transaction is already void',
           });
         for (const item of transaction.items) {
+          const inventoryMovements = await tx.stockMovement.findMany({
+            where: {
+              tenantId: transaction.outlet.tenantId,
+              sourceId: item.id,
+              type: StockMovementType.SALE_CONSUMED,
+              sourceType: { in: ['SALE_DIRECT', 'SALE_RECIPE'] },
+            },
+          });
+          for (const movement of inventoryMovements) {
+            if (movement.sourceType !== 'SALE_DIRECT') continue;
+            await this.inventoryLedger.post(tx, {
+              tenantId: movement.tenantId,
+              locationId: movement.locationId,
+              itemId: movement.itemId,
+              type: StockMovementType.SALE_REVERSED,
+              direction: StockMovementDirection.IN,
+              quantity: movement.quantity,
+              unitCost: movement.unitCost,
+              incomingCostPolicy: 'PRESERVE',
+              sourceType: 'SALE_DIRECT_VOID',
+              sourceId: item.id,
+              idempotencyKey: `sale-void:${movement.id}`,
+              notes: `Void transaction ${transaction.invoiceNo}`,
+              actorId: ownerId,
+            });
+          }
+          if (inventoryMovements.length > 0) continue;
           if (item.trackStock && item.productId) {
             const restored = await tx.product.updateMany({
               where: { id: item.productId, outletId },
