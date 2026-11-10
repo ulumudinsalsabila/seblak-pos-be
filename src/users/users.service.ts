@@ -7,7 +7,7 @@ import {
 import { Prisma, Role, UserStatus } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
+import { CreateUserDto, ListUsersDto, UpdateUserDto } from './dto/user.dto';
 
 const publicSelect = {
   id: true,
@@ -23,17 +23,43 @@ const publicSelect = {
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(outletId: string) {
+  async list(outletId: string, query: ListUsersDto) {
+    const search = query.search?.trim();
+    const where: Prisma.OutletMembershipWhereInput = {
+      outletId,
+      role: query.role,
+      status: query.status,
+      ...(search
+        ? {
+            user: {
+              OR: [
+                { name: { contains: search, mode: 'insensitive' } },
+                { email: { contains: search, mode: 'insensitive' } },
+              ],
+            },
+          }
+        : {}),
+    };
+    const paginated = query.page !== undefined || query.limit !== undefined;
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
     const memberships = await this.prisma.outletMembership.findMany({
-      where: { outletId },
+      where,
       include: { user: { select: publicSelect } },
       orderBy: { user: { name: 'asc' } },
+      ...(paginated ? { skip: (page - 1) * limit, take: limit } : {}),
     });
-    return memberships.map(({ user, role, status }) => ({
+    const data = memberships.map(({ user, role, status }) => ({
       ...user,
       role,
       status,
     }));
+    if (!paginated) return { data, meta: null };
+    const total = await this.prisma.outletMembership.count({ where });
+    return {
+      data,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   async find(outletId: string, id: string) {

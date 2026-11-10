@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
@@ -15,7 +16,11 @@ import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { requireOutlet } from '../common/outlet-context';
-import { CreateExpenseDto, UpdateExpenseDto } from './expense.dto';
+import {
+  CreateExpenseDto,
+  ListExpensesDto,
+  UpdateExpenseDto,
+} from './expense.dto';
 import { ExpensesService } from './expenses.service';
 
 @Controller('expenses')
@@ -23,8 +28,11 @@ import { ExpensesService } from './expenses.service';
 @Roles(Role.OWNER, Role.MANAGER)
 export class ExpensesController {
   constructor(private readonly expenses: ExpensesService) {}
-  @Get() async list(@CurrentUser() user: AuthUser) {
-    return { data: await this.expenses.list(requireOutlet(user)), meta: null };
+  @Get() async list(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListExpensesDto,
+  ) {
+    return this.expenses.list(requireOutlet(user), query);
   }
   @Post() async create(
     @CurrentUser() user: AuthUser,

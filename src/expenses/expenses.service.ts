@@ -1,16 +1,55 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateExpenseDto, UpdateExpenseDto } from './expense.dto';
+import { Prisma } from '@prisma/client';
+import { calendarDateRange } from '../common/dates';
+import {
+  CreateExpenseDto,
+  ListExpensesDto,
+  UpdateExpenseDto,
+} from './expense.dto';
 
 @Injectable()
 export class ExpensesService {
   constructor(private readonly prisma: PrismaService) {}
-  list(outletId: string) {
-    return this.prisma.expense.findMany({
-      where: { outletId },
+  async list(outletId: string, query: ListExpensesDto) {
+    const search = query.search?.trim();
+    const where: Prisma.ExpenseWhereInput = {
+      outletId,
+      createdById: query.createdById,
+      expenseDate:
+        query.dateFrom || query.dateTo
+          ? calendarDateRange(
+              query.dateFrom ?? query.dateTo,
+              query.dateTo ?? query.dateFrom,
+            )
+          : undefined,
+      ...(search
+        ? {
+            OR: [
+              { description: { contains: search, mode: 'insensitive' } },
+              { notes: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+    const paginated = query.page !== undefined || query.limit !== undefined;
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const findMany = this.prisma.expense.findMany({
+      where,
       include: { createdBy: { select: { id: true, name: true } } },
-      orderBy: [{ expenseDate: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ [query.sortBy]: query.sortOrder }, { createdAt: 'desc' }],
+      ...(paginated ? { skip: (page - 1) * limit, take: limit } : {}),
     });
+    if (!paginated) return { data: await findMany, meta: null };
+    const [data, total] = await Promise.all([
+      findMany,
+      this.prisma.expense.count({ where }),
+    ]);
+    return {
+      data,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
   }
   async find(outletId: string, id: string) {
     const item = await this.prisma.expense.findFirst({

@@ -31,6 +31,15 @@ type MenuOptionGroup = {
   values: { id: string; label: string }[];
 };
 
+const INT4_MAX = 2_147_483_647;
+
+/** Cost is reporting-only: an out-of-range value is stored as unknown rather than blocking checkout. */
+function costSubtotal(unitCost: number | null, quantity: number) {
+  if (unitCost === null) return null;
+  const value = unitCost * quantity;
+  return value > INT4_MAX ? null : value;
+}
+
 const includeDetail = {
   items: true,
   cashier: { select: { id: true, name: true } },
@@ -283,8 +292,13 @@ export class TransactionsService {
                   pricingType: line.product.pricingType,
                   trackStock: line.product.trackStock,
                   unitPrice: line.product.price,
+                  unitCost: line.product.unitCost,
                   quantity: line.quantity,
                   subtotal: line.subtotal,
+                  costSubtotal: costSubtotal(
+                    line.product.unitCost,
+                    line.quantity,
+                  ),
                   spicyLevel: line.spicyLevel,
                   brothLevel: line.brothLevel,
                   tastePreference: line.tastePreference,

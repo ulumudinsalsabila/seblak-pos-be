@@ -31,11 +31,14 @@ export class CreateProductDto {
   @IsString() @MinLength(1) @MaxLength(50) sku!: string;
   @IsEnum(PricingType) pricingType!: PricingType;
   @IsInt() @Min(0) @Max(2_000_000_000) price!: number;
+  @IsOptional() @IsInt() @Min(0) @Max(100_000_000) unitCost?: number | null;
   @IsBoolean() trackStock!: boolean;
   @ValidateIf((o: CreateProductDto) => o.trackStock)
   @IsInt()
   @Min(0)
   stock?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(2_000_000_000) lowStockThreshold?:
+    number | null;
   @IsOptional() @IsString() @MaxLength(500) imageUrl?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
@@ -46,8 +49,11 @@ export class UpdateProductDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(50) sku?: string;
   @IsOptional() @IsEnum(PricingType) pricingType?: PricingType;
   @IsOptional() @IsInt() @Min(0) @Max(2_000_000_000) price?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(100_000_000) unitCost?: number | null;
   @IsOptional() @IsBoolean() trackStock?: boolean;
   @IsOptional() @IsInt() @Min(0) stock?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(2_000_000_000) lowStockThreshold?:
+    number | null;
   @IsOptional() @IsString() @MaxLength(500) imageUrl?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }

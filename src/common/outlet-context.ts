@@ -7,3 +7,10 @@ export function requireOutlet(user: AuthUser): string {
   }
   return user.outletId;
 }
+
+export function requireTenant(user: AuthUser): string {
+  if (!user.tenantId) {
+    throw new ForbiddenException('An active tenant is required');
+  }
+  return user.tenantId;
+}
