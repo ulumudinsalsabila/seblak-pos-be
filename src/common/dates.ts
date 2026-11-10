@@ -18,6 +18,23 @@ export function jakartaDayRange(value = jakartaDateString()) {
   return { start, end };
 }
 
+/**
+ * Range for `@db.Date` columns (e.g. Expense.expenseDate), which hold a
+ * calendar date stored as UTC midnight. Instant ranges from `jakartaRange`
+ * would be truncated to the previous UTC day and select the wrong dates.
+ */
+export function calendarDateRange(dateFrom?: string, dateTo?: string) {
+  const from = dateFrom ?? jakartaDateString();
+  const to = dateTo ?? from;
+  for (const value of [from, to])
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
+      throw new Error('Date must use YYYY-MM-DD');
+  return {
+    gte: new Date(`${from}T00:00:00.000Z`),
+    lte: new Date(`${to}T00:00:00.000Z`),
+  };
+}
+
 export function jakartaRange(dateFrom?: string, dateTo?: string) {
   const from = jakartaDayRange(dateFrom ?? jakartaDateString()).start;
   const toStart = jakartaDayRange(

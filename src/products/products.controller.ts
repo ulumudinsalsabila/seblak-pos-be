@@ -13,6 +13,7 @@ import { Role } from '@prisma/client';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser } from '../common/current-user.decorator';
 import { requireOutlet } from '../common/outlet-context';
+import { hideCost } from '../common/cost-visibility';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
@@ -35,14 +36,20 @@ export class ProductsController {
     @CurrentUser() user: AuthUser,
     @Query() query: ListProductsDto,
   ) {
-    return this.products.list(requireOutlet(user), query);
+    return hideCost(
+      await this.products.list(requireOutlet(user), query),
+      user.role,
+    );
   }
   @Get(':id') @Roles(Role.OWNER, Role.MANAGER, Role.CASHIER) async find(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
     return {
-      data: await this.products.find(requireOutlet(user), id),
+      data: hideCost(
+        await this.products.find(requireOutlet(user), id),
+        user.role,
+      ),
       meta: null,
     };
   }

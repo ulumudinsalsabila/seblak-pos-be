@@ -7,12 +7,13 @@ import {
   Patch,
   Post,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
-import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
+import { CreateUserDto, ListUsersDto, UpdateUserDto } from './dto/user.dto';
 import { UsersService } from './users.service';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser } from '../common/current-user.decorator';
@@ -23,8 +24,11 @@ import { requireOutlet } from '../common/outlet-context';
 @Roles(Role.OWNER)
 export class UsersController {
   constructor(private readonly users: UsersService) {}
-  @Get() async list(@CurrentUser() user: AuthUser) {
-    return { data: await this.users.list(requireOutlet(user)), meta: null };
+  @Get() async list(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListUsersDto,
+  ) {
+    return this.users.list(requireOutlet(user), query);
   }
   @Post() async create(
     @CurrentUser() user: AuthUser,

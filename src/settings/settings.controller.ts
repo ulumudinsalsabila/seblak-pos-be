@@ -11,12 +11,12 @@ import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
-import { UpdateSettingsDto } from './settings.dto';
+import { UpdateSettingsDto, UpdateTenantThemeDto } from './settings.dto';
 import { SettingsService } from './settings.service';
 import { ProductImagesService } from '../products/product-images.service';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser } from '../common/current-user.decorator';
-import { requireOutlet } from '../common/outlet-context';
+import { requireOutlet, requireTenant } from '../common/outlet-context';
 
 @Controller('settings')
 export class SettingsController {
@@ -31,6 +31,14 @@ export class SettingsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   async get(@CurrentUser() user: AuthUser) {
     return { data: await this.settings.get(requireOutlet(user)), meta: null };
+  }
+  @Get('theme')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async theme(@CurrentUser() user: AuthUser) {
+    return {
+      data: await this.settings.getTenantTheme(requireTenant(user)),
+      meta: null,
+    };
   }
   @Post('image-signature')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -47,6 +55,19 @@ export class SettingsController {
   async update(@CurrentUser() user: AuthUser, @Body() dto: UpdateSettingsDto) {
     return {
       data: await this.settings.update(requireOutlet(user), dto),
+      meta: null,
+    };
+  }
+
+  @Patch('theme')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  async updateTheme(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateTenantThemeDto,
+  ) {
+    return {
+      data: await this.settings.updateTenantTheme(requireTenant(user), dto),
       meta: null,
     };
   }
