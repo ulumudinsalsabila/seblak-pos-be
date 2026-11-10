@@ -6,6 +6,29 @@ di `../README.md` dan kontrak bisnis lengkap di `../SEBLAK_POS_BRD_ERD.md`.
 
 Endpoint base: `/api/v1`.
 
+## Inventory foundation
+
+The additive hybrid-inventory foundation exposes:
+
+- `GET /inventory/overview`
+- `GET/POST/PATCH /inventory/locations`
+- `GET/POST /inventory/units`
+- `GET/POST/PATCH /inventory/items`
+- `POST /inventory/items/:id/conversions`
+- `GET /inventory/balances`
+- `GET /inventory/movements`
+- `POST /inventory/opening-balances` (owner or explicit permission)
+
+Inventory data is tenant-scoped. Costs and the immutable ledger require their
+own inventory permissions; a super admin never receives tenant inventory access
+implicitly. List endpoints use the existing `page`, `limit`, `search`,
+`sortBy`, and `sortOrder` response convention.
+
+Migration `20261110193000_add_inventory_foundation` only adds inventory tables,
+canonical units, and default outlet locations. It deliberately does not copy
+`Product.stock`, alter checkout, or enable stock posting for sales. Opening
+balances and cutover require a separate reconciled rollout.
+
 Perintah utama:
 
 ```bash

@@ -4,7 +4,14 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { FeeType, Prisma, Role, UserStatus } from '@prisma/client';
+import {
+  FeeType,
+  Prisma,
+  Role,
+  StockLocationType,
+  UnitDimension,
+  UserStatus,
+} from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -70,6 +77,68 @@ export class AdminService {
             },
           },
           include: { tenant: true, settings: true, feeConfigs: true },
+        });
+        await tx.inventoryUnit.createMany({
+          data: [
+            {
+              tenantId: tenant.id,
+              code: 'g',
+              name: 'Gram',
+              symbol: 'g',
+              dimension: UnitDimension.MASS,
+              isBase: true,
+              factorToDimensionBase: 1,
+              precision: 3,
+            },
+            {
+              tenantId: tenant.id,
+              code: 'kg',
+              name: 'Kilogram',
+              symbol: 'kg',
+              dimension: UnitDimension.MASS,
+              factorToDimensionBase: 1000,
+              precision: 3,
+            },
+            {
+              tenantId: tenant.id,
+              code: 'ml',
+              name: 'Milliliter',
+              symbol: 'ml',
+              dimension: UnitDimension.VOLUME,
+              isBase: true,
+              factorToDimensionBase: 1,
+              precision: 3,
+            },
+            {
+              tenantId: tenant.id,
+              code: 'l',
+              name: 'Liter',
+              symbol: 'L',
+              dimension: UnitDimension.VOLUME,
+              factorToDimensionBase: 1000,
+              precision: 3,
+            },
+            {
+              tenantId: tenant.id,
+              code: 'pcs',
+              name: 'Pieces',
+              symbol: 'pcs',
+              dimension: UnitDimension.COUNT,
+              isBase: true,
+              factorToDimensionBase: 1,
+              precision: 0,
+            },
+          ],
+          skipDuplicates: true,
+        });
+        await tx.stockLocation.create({
+          data: {
+            tenantId: tenant.id,
+            outletId: outlet.id,
+            code: `OUTLET-${outlet.code}`,
+            name: outlet.name,
+            type: StockLocationType.OUTLET,
+          },
         });
         const ownerEmail = dto.ownerEmail.trim().toLowerCase();
         const existingOwner = await tx.user.findUnique({
