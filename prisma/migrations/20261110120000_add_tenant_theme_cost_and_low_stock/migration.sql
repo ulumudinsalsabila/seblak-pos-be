@@ -14,6 +14,13 @@ CREATE UNIQUE INDEX "TenantTheme_tenantId_key" ON "TenantTheme"("tenantId");
 ALTER TABLE "TenantTheme" ADD CONSTRAINT "TenantTheme_tenantId_fkey"
   FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- New default brand colour (owner decision 2026-11-10). Outlets still on a
+-- previous default (never customised) move to it; custom colours are kept.
+ALTER TABLE "StoreSettings" ALTER COLUMN "primaryColor" SET DEFAULT '#C2410C';
+UPDATE "StoreSettings"
+SET "primaryColor" = '#C2410C'
+WHERE UPPER("primaryColor") IN ('#0B63F6', '#4F46E5');
+
 -- Carry existing branding over so tenants keep their logo and colour: use the
 -- settings of each tenant's oldest outlet.
 INSERT INTO "TenantTheme" ("id", "tenantId", "primaryColor", "logoUrl", "faviconUrl", "updatedAt")
@@ -25,9 +32,6 @@ FROM (
   JOIN "StoreSettings" s ON s."outletId" = o."id"
   ORDER BY o."tenantId", o."createdAt" ASC
 ) AS source;
-
--- New default brand colour (owner decision 2026-11-10). Existing saved colours are kept.
-ALTER TABLE "StoreSettings" ALTER COLUMN "primaryColor" SET DEFAULT '#C2410C';
 
 ALTER TABLE "Product" ADD COLUMN "unitCost" INTEGER;
 ALTER TABLE "Product" ADD COLUMN "lowStockThreshold" INTEGER;
