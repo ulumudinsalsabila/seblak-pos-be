@@ -181,6 +181,18 @@ model Tenant {
   stockMovements       StockMovement[]
   inventoryGrants      InventoryPermissionGrant[]
   inventoryAuditEvents InventoryAuditEvent[]
+  theme                TenantTheme?
+}
+
+model TenantTheme {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @unique @db.Uuid
+  primaryColor String   @default("#C2410C") @db.VarChar(7)
+  logoUrl      String?  @db.VarChar(500)
+  faviconUrl   String?  @db.VarChar(500)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model Outlet {
@@ -284,22 +296,24 @@ model Category {
 }
 
 model Product {
-  id               String            @id @default(uuid()) @db.Uuid
-  outletId         String            @db.Uuid
-  categoryId       String            @db.Uuid
-  name             String            @db.VarChar(100)
-  sku              String            @db.VarChar(50)
-  pricingType      PricingType
-  price            Int
-  stock            Int?
-  trackStock       Boolean           @default(false)
-  imageUrl         String?           @db.VarChar(500)
-  isActive         Boolean           @default(true)
-  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
-  category         Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  outlet           Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  transactionItems TransactionItem[]
+  id                String            @id @default(uuid()) @db.Uuid
+  outletId          String            @db.Uuid
+  categoryId        String            @db.Uuid
+  name              String            @db.VarChar(100)
+  sku               String            @db.VarChar(50)
+  pricingType       PricingType
+  price             Int
+  unitCost          Int?
+  stock             Int?
+  lowStockThreshold Int?
+  trackStock        Boolean           @default(false)
+  imageUrl          String?           @db.VarChar(500)
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
+  category          Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  outlet            Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  transactionItems  TransactionItem[]
 
   @@unique([outletId, sku])
   @@index([outletId, categoryId, isActive])
@@ -371,8 +385,10 @@ model TransactionItem {
   pricingType     PricingType
   trackStock      Boolean
   unitPrice       Int
+  unitCost        Int?
   quantity        Int
   subtotal        Int
+  costSubtotal    Int?
   spicyLevel      Int             @default(0)
   brothLevel      BrothLevel      @default(MEDIUM)
   tastePreference TastePreference @default(SAVORY)
@@ -411,7 +427,7 @@ model StoreSettings {
   storeName        String           @default("Saung Sunja") @db.VarChar(100)
   logoUrl          String?          @db.VarChar(500)
   faviconUrl       String?          @db.VarChar(500)
-  primaryColor     String           @default("#4F46E5") @db.VarChar(7)
+  primaryColor     String           @default("#C2410C") @db.VarChar(7)
   address          String?          @db.VarChar(500)
   phone            String?          @db.VarChar(50)
   currency         String           @default("IDR") @db.VarChar(10)

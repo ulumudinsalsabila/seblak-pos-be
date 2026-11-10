@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { requireOutlet } from '../common/outlet-context';
+import { hideCost } from '../common/cost-visibility';
 import {
   CreateTransactionDto,
   ListKitchenOrdersDto,
@@ -31,7 +32,10 @@ export class TransactionsController {
     @Body() dto: CreateTransactionDto,
   ) {
     return {
-      data: await this.transactions.create(requireOutlet(user), user.id, dto),
+      data: hideCost(
+        await this.transactions.create(requireOutlet(user), user.id, dto),
+        user.role,
+      ),
       meta: null,
     };
   }
@@ -39,14 +43,20 @@ export class TransactionsController {
     @CurrentUser() user: AuthUser,
     @Query() query: ListTransactionsDto,
   ) {
-    return this.transactions.list(requireOutlet(user), query);
+    return hideCost(
+      await this.transactions.list(requireOutlet(user), query),
+      user.role,
+    );
   }
   @Get('kitchen') @Roles(Role.OWNER, Role.MANAGER, Role.KITCHEN) async kitchen(
     @CurrentUser() user: AuthUser,
     @Query() query: ListKitchenOrdersDto,
   ) {
     return {
-      data: await this.transactions.kitchen(requireOutlet(user), query),
+      data: hideCost(
+        await this.transactions.kitchen(requireOutlet(user), query),
+        user.role,
+      ),
       meta: null,
     };
   }
@@ -82,7 +92,10 @@ export class TransactionsController {
     @Param('id') id: string,
   ) {
     return {
-      data: await this.transactions.find(requireOutlet(user), id),
+      data: hideCost(
+        await this.transactions.find(requireOutlet(user), id),
+        user.role,
+      ),
       meta: null,
     };
   }

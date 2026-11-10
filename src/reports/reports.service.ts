@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { TransactionStatus } from '@prisma/client';
-import { jakartaRange } from '../common/dates';
+import { calendarDateRange, jakartaRange } from '../common/dates';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -16,7 +16,7 @@ export class ReportsService {
         _sum: { subtotal: true, discount: true, tax: true, total: true },
       }),
       this.prisma.expense.aggregate({
-        where: { outletId, expenseDate: { gte: range.gte, lt: range.lt } },
+        where: { outletId, expenseDate: calendarDateRange(dateFrom, dateTo) },
         _sum: { amount: true },
       }),
       this.prisma.transaction.count({ where }),
@@ -101,7 +101,7 @@ export class ReportsService {
 
   expenses(outletId: string, dateFrom?: string, dateTo?: string) {
     return this.prisma.expense.findMany({
-      where: { outletId, expenseDate: jakartaRange(dateFrom, dateTo) },
+      where: { outletId, expenseDate: calendarDateRange(dateFrom, dateTo) },
       include: { createdBy: { select: { id: true, name: true } } },
       orderBy: { expenseDate: 'desc' },
     });

@@ -38,7 +38,11 @@ export class CheckoutItemDto {
   @IsOptional() @IsEnum(BrothLevel) brothLevel?: BrothLevel;
   @IsOptional() @IsEnum(TastePreference) tastePreference?: TastePreference;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
-  @IsOptional() @IsArray() @ArrayMaxSize(30) @ValidateNested({ each: true }) @Type(() => SelectedOptionDto)
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @ValidateNested({ each: true })
+  @Type(() => SelectedOptionDto)
   selectedOptions?: SelectedOptionDto[];
 }
 

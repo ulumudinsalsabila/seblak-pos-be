@@ -31,6 +31,15 @@ type MenuOptionGroup = {
   values: { id: string; label: string }[];
 };
 
+const INT4_MAX = 2_147_483_647;
+
+/** Cost is reporting-only: an out-of-range value is stored as unknown rather than blocking checkout. */
+function costSubtotal(unitCost: number | null, quantity: number) {
+  if (unitCost === null) return null;
+  const value = unitCost * quantity;
+  return value > INT4_MAX ? null : value;
+}
+
 const includeDetail = {
   items: true,
   cashier: { select: { id: true, name: true } },
@@ -117,22 +126,31 @@ export class TransactionsService {
                 Array.isArray(group.categoryIds) &&
                 group.categoryIds.includes(product.categoryId),
             );
-            const selectedOptions = (item.selectedOptions ?? []).map((selected) => {
-              const group = applicableGroups.find((candidate) => candidate.id === selected.groupId);
-              const value = group?.values.find((candidate) => candidate.id === selected.valueId);
-              if (!group || !value)
-                throw new UnprocessableEntityException({
-                  code: 'INVALID_MENU_OPTION',
-                  message: `Opsi untuk ${product.name} tidak valid`,
-                });
-              return {
-                groupId: group.id,
-                groupName: group.name,
-                valueId: value.id,
-                valueLabel: value.label,
-              };
-            });
-            if (new Set(selectedOptions.map((selected) => selected.groupId)).size !== selectedOptions.length)
+            const selectedOptions = (item.selectedOptions ?? []).map(
+              (selected) => {
+                const group = applicableGroups.find(
+                  (candidate) => candidate.id === selected.groupId,
+                );
+                const value = group?.values.find(
+                  (candidate) => candidate.id === selected.valueId,
+                );
+                if (!group || !value)
+                  throw new UnprocessableEntityException({
+                    code: 'INVALID_MENU_OPTION',
+                    message: `Opsi untuk ${product.name} tidak valid`,
+                  });
+                return {
+                  groupId: group.id,
+                  groupName: group.name,
+                  valueId: value.id,
+                  valueLabel: value.label,
+                };
+              },
+            );
+            if (
+              new Set(selectedOptions.map((selected) => selected.groupId))
+                .size !== selectedOptions.length
+            )
               throw new UnprocessableEntityException({
                 code: 'INVALID_MENU_OPTION',
                 message: `Grup opsi untuk ${product.name} tidak boleh duplikat`,
@@ -283,8 +301,13 @@ export class TransactionsService {
                   pricingType: line.product.pricingType,
                   trackStock: line.product.trackStock,
                   unitPrice: line.product.price,
+                  unitCost: line.product.unitCost,
                   quantity: line.quantity,
                   subtotal: line.subtotal,
+                  costSubtotal: costSubtotal(
+                    line.product.unitCost,
+                    line.quantity,
+                  ),
                   spicyLevel: line.spicyLevel,
                   brothLevel: line.brothLevel,
                   tastePreference: line.tastePreference,

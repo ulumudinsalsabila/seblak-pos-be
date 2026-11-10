@@ -31,9 +31,15 @@ class MenuOptionGroupDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string;
   @IsOptional() @IsInt() @Min(0) @Max(9999) sortOrder?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @IsUUID('4', { each: true })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
   categoryIds!: string[];
-  @IsArray() @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => MenuOptionValueDto)
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => MenuOptionValueDto)
   values!: MenuOptionValueDto[];
 }
 
@@ -65,6 +71,30 @@ export class UpdateSettingsDto {
   @IsOptional() @IsString() @MaxLength(500) receiptHeader?: string;
   @IsOptional() @IsString() @MaxLength(500) receiptFooter?: string;
   @IsOptional() @IsEnum(ReceiptPaperSize) receiptPaperSize?: ReceiptPaperSize;
-  @IsOptional() @IsArray() @ArrayMaxSize(30) @ValidateNested({ each: true }) @Type(() => MenuOptionGroupDto)
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @ValidateNested({ each: true })
+  @Type(() => MenuOptionGroupDto)
   menuOptions?: MenuOptionGroupDto[];
+}
+
+/** PATCH semantics: omitted fields stay unchanged, `null` clears a URL. */
+export class UpdateTenantThemeDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  primaryColor?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_protocol: true })
+  @MaxLength(500)
+  logoUrl?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_protocol: true })
+  @MaxLength(500)
+  faviconUrl?: string | null;
 }

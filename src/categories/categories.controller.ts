@@ -17,7 +17,11 @@ import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { CategoriesService } from './categories.service';
-import { CreateCategoryDto, UpdateCategoryDto } from './category.dto';
+import {
+  CreateCategoryDto,
+  ListCategoriesDto,
+  UpdateCategoryDto,
+} from './category.dto';
 
 @Controller('categories')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -25,15 +29,9 @@ export class CategoriesController {
   constructor(private readonly categories: CategoriesService) {}
   @Get() @Roles(Role.OWNER, Role.MANAGER, Role.CASHIER) async list(
     @CurrentUser() user: AuthUser,
-    @Query('activeOnly') activeOnly?: string,
+    @Query() query: ListCategoriesDto,
   ) {
-    return {
-      data: await this.categories.list(
-        requireOutlet(user),
-        activeOnly === 'true',
-      ),
-      meta: null,
-    };
+    return this.categories.list(requireOutlet(user), query);
   }
   @Get(':id') @Roles(Role.OWNER, Role.MANAGER, Role.CASHIER) async find(
     @CurrentUser() user: AuthUser,
