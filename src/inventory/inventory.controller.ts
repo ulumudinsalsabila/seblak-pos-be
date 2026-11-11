@@ -1,15 +1,17 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { InventoryPermission } from '@prisma/client';
+import { InventoryPermission, StockAdjustmentKind } from '@prisma/client';
 import { AuthUser } from '../common/auth-user';
 import { CurrentUser } from '../common/current-user.decorator';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
@@ -17,19 +19,25 @@ import { requireTenant } from '../common/tenant-context';
 import { requireOutlet } from '../common/outlet-context';
 import { InventoryAccessService } from './inventory-access.service';
 import {
+  CancelStocktakeDto,
   CreateItemConversionDto,
   ConfigureProductInventoryDto,
   CreateItemDto,
   CreateLocationDto,
   CreatePurchaseReceiptDto,
+  CreateStockAdjustmentDto,
+  CreateStocktakeDto,
   CreateUnitDto,
   ListBalancesDto,
   ListItemsDto,
   ListLocationsDto,
   ListMovementsDto,
   ListPurchaseReceiptsDto,
+  ListStockAdjustmentsDto,
+  ListStocktakesDto,
   ListUnitsDto,
   PostOpeningBalancesDto,
+  RecordStocktakeCountsDto,
   UpdateItemDto,
   UpdateLocationDto,
 } from './inventory.dto';
@@ -37,6 +45,8 @@ import { InventoryPermissions } from './inventory-permissions';
 import { InventoryPermissionsGuard } from './inventory-permissions.guard';
 import { InventoryService } from './inventory.service';
 import { PurchaseReceiptsService } from './purchase-receipts.service';
+import { StockAdjustmentsService } from './stock-adjustments.service';
+import { StocktakesService } from './stocktakes.service';
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, InventoryPermissionsGuard)
@@ -45,7 +55,13 @@ export class InventoryController {
     private readonly inventory: InventoryService,
     private readonly access: InventoryAccessService,
     private readonly purchases: PurchaseReceiptsService,
+    private readonly adjustments: StockAdjustmentsService,
+    private readonly stocktakes: StocktakesService,
   ) {}
+
+  private showCost(user: AuthUser) {
+    return this.access.has(user, InventoryPermission.VIEW_INVENTORY_COST);
+  }
 
   @Get('overview')
   @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
@@ -241,6 +257,200 @@ export class InventoryController {
   ) {
     return {
       data: await this.purchases.create(requireTenant(user), user.id, dto),
+      meta: null,
+    };
+  }
+
+  @Get('adjustments')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY_LEDGER)
+  async listAdjustments(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListStockAdjustmentsDto,
+  ) {
+    return this.adjustments.list(
+      requireTenant(user),
+      query,
+      await this.showCost(user),
+    );
+  }
+
+  @Post('waste')
+  @InventoryPermissions(InventoryPermission.POST_INVENTORY_WASTE)
+  async postWaste(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateStockAdjustmentDto,
+  ) {
+    return {
+      data: await this.adjustments.create(
+        requireTenant(user),
+        user.id,
+        StockAdjustmentKind.WASTE,
+        dto,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('adjustments')
+  @InventoryPermissions(InventoryPermission.POST_INVENTORY_ADJUSTMENTS)
+  async postAdjustment(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateStockAdjustmentDto,
+  ) {
+    return {
+      data: await this.adjustments.create(
+        requireTenant(user),
+        user.id,
+        StockAdjustmentKind.ADJUSTMENT,
+        dto,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Get('stocktakes')
+  @InventoryPermissions(InventoryPermission.COUNT_INVENTORY_STOCKTAKE)
+  listStocktakes(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListStocktakesDto,
+  ) {
+    return this.stocktakes.list(requireTenant(user), query);
+  }
+
+  @Get('stocktakes/:id')
+  @InventoryPermissions(InventoryPermission.COUNT_INVENTORY_STOCKTAKE)
+  async findStocktake(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return {
+      data: await this.stocktakes.findOne(
+        requireTenant(user),
+        id,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('stocktakes')
+  @InventoryPermissions(InventoryPermission.COUNT_INVENTORY_STOCKTAKE)
+  async createStocktake(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateStocktakeDto,
+  ) {
+    return {
+      data: await this.stocktakes.create(requireTenant(user), user.id, dto),
+      meta: null,
+    };
+  }
+
+  @Put('stocktakes/:id/counts')
+  @InventoryPermissions(InventoryPermission.COUNT_INVENTORY_STOCKTAKE)
+  async recordStocktakeCounts(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecordStocktakeCountsDto,
+  ) {
+    return {
+      data: await this.stocktakes.recordCounts(
+        requireTenant(user),
+        user.id,
+        id,
+        dto,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Delete('stocktakes/:id/counts/:itemId')
+  @InventoryPermissions(InventoryPermission.COUNT_INVENTORY_STOCKTAKE)
+  async removeStocktakeCount(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+  ) {
+    return {
+      data: await this.stocktakes.removeCount(
+        requireTenant(user),
+        user.id,
+        id,
+        itemId,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('stocktakes/:id/submit')
+  @InventoryPermissions(InventoryPermission.COUNT_INVENTORY_STOCKTAKE)
+  async submitStocktake(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return {
+      data: await this.stocktakes.submit(
+        requireTenant(user),
+        user.id,
+        id,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('stocktakes/:id/reopen')
+  @InventoryPermissions(InventoryPermission.APPROVE_INVENTORY_STOCKTAKE)
+  async reopenStocktake(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return {
+      data: await this.stocktakes.reopen(
+        requireTenant(user),
+        user.id,
+        id,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('stocktakes/:id/approve')
+  @InventoryPermissions(InventoryPermission.APPROVE_INVENTORY_STOCKTAKE)
+  async approveStocktake(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return {
+      data: await this.stocktakes.approve(
+        requireTenant(user),
+        user.id,
+        id,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('stocktakes/:id/cancel')
+  @InventoryPermissions(InventoryPermission.COUNT_INVENTORY_STOCKTAKE)
+  async cancelStocktake(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelStocktakeDto,
+  ) {
+    return {
+      data: await this.stocktakes.cancel(
+        requireTenant(user),
+        user.id,
+        id,
+        dto,
+        await this.showCost(user),
+      ),
       meta: null,
     };
   }

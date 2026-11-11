@@ -146,6 +146,33 @@ enum InventoryPermission {
   POST_INVENTORY_OPENING
   MANAGE_INVENTORY_RECIPES
   RECEIVE_INVENTORY_PURCHASES
+  POST_INVENTORY_WASTE
+  POST_INVENTORY_ADJUSTMENTS
+  COUNT_INVENTORY_STOCKTAKE
+  APPROVE_INVENTORY_STOCKTAKE
+}
+
+enum StockAdjustmentKind {
+  WASTE
+  ADJUSTMENT
+}
+
+enum StockAdjustmentReason {
+  EXPIRED
+  SPOILED
+  SPILLED
+  DAMAGED
+  STAFF_MEAL
+  COUNT_CORRECTION
+  FOUND
+  OTHER
+}
+
+enum StocktakeStatus {
+  COUNTING
+  REVIEW
+  POSTED
+  CANCELLED
 }
 
 enum ProductInventoryMode {
@@ -154,23 +181,29 @@ enum ProductInventoryMode {
 }
 
 model User {
-  id                 String                     @id @default(uuid()) @db.Uuid
-  name               String                     @db.VarChar(100)
-  email              String                     @unique @db.VarChar(254)
-  passwordHash       String
-  role               Role
-  status             UserStatus                 @default(ACTIVE)
-  createdAt          DateTime                   @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime                   @updatedAt @db.Timestamptz(3)
-  refreshTokens      RefreshToken[]
-  transactions       Transaction[]              @relation("CashierTransactions")
-  voidedTransactions Transaction[]              @relation("VoidedTransactions")
-  expenses           Expense[]
-  outletMemberships  OutletMembership[]
-  inventoryGrants    InventoryPermissionGrant[]
-  inventoryMovements StockMovement[]            @relation("InventoryMovementActor")
-  inventoryAudits    InventoryAuditEvent[]      @relation("InventoryAuditActor")
-  purchaseReceipts   PurchaseReceipt[]          @relation("PurchaseReceiptCreator")
+  id                  String                     @id @default(uuid()) @db.Uuid
+  name                String                     @db.VarChar(100)
+  email               String                     @unique @db.VarChar(254)
+  passwordHash        String
+  role                Role
+  status              UserStatus                 @default(ACTIVE)
+  createdAt           DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime                   @updatedAt @db.Timestamptz(3)
+  refreshTokens       RefreshToken[]
+  transactions        Transaction[]              @relation("CashierTransactions")
+  voidedTransactions  Transaction[]              @relation("VoidedTransactions")
+  expenses            Expense[]
+  outletMemberships   OutletMembership[]
+  inventoryGrants     InventoryPermissionGrant[]
+  inventoryMovements  StockMovement[]            @relation("InventoryMovementActor")
+  inventoryAudits     InventoryAuditEvent[]      @relation("InventoryAuditActor")
+  purchaseReceipts    PurchaseReceipt[]          @relation("PurchaseReceiptCreator")
+  stockAdjustments    StockAdjustment[]          @relation("StockAdjustmentCreator")
+  stocktakesCreated   Stocktake[]                @relation("StocktakeCreator")
+  stocktakesSubmitted Stocktake[]                @relation("StocktakeSubmitter")
+  stocktakesApproved  Stocktake[]                @relation("StocktakeApprover")
+  stocktakesCancelled Stocktake[]                @relation("StocktakeCanceller")
+  stocktakeCounts     StocktakeLine[]            @relation("StocktakeCounter")
 }
 
 model Tenant {
@@ -194,6 +227,10 @@ model Tenant {
   inventoryRecipeLines    InventoryRecipeLine[]
   purchaseReceipts        PurchaseReceipt[]
   purchaseReceiptLines    PurchaseReceiptLine[]
+  stockAdjustments        StockAdjustment[]
+  stockAdjustmentLines    StockAdjustmentLine[]
+  stocktakes              Stocktake[]
+  stocktakeLines          StocktakeLine[]
   theme                   TenantTheme?
 }
 
@@ -484,6 +521,8 @@ model InventoryUnit {
   baseItems             InventoryItem[]
   conversions           ItemUnitConversion[]
   purchaseReceiptLines  PurchaseReceiptLine[]
+  stockAdjustmentLines  StockAdjustmentLine[]
+  stocktakeLines        StocktakeLine[]
 
   @@unique([tenantId, code])
   @@unique([id, tenantId])
@@ -510,6 +549,8 @@ model InventoryItem {
   directProductConfigs ProductInventoryConfig[]
   recipeLines          InventoryRecipeLine[]
   purchaseReceiptLines PurchaseReceiptLine[]
+  stockAdjustmentLines StockAdjustmentLine[]
+  stocktakeLines       StocktakeLine[]
 
   @@unique([tenantId, sku])
   @@unique([id, tenantId])
@@ -608,6 +649,8 @@ model StockLocation {
   grants           InventoryPermissionGrant[]
   productConfigs   ProductInventoryConfig[]
   purchaseReceipts PurchaseReceipt[]
+  stockAdjustments StockAdjustment[]
+  stocktakes       Stocktake[]
 
   @@unique([tenantId, code])
   @@unique([id, tenantId])
@@ -739,5 +782,112 @@ model PurchaseReceiptLine {
   unit           InventoryUnit   @relation(fields: [unitId, tenantId], references: [id, tenantId], onDelete: Restrict)
 
   @@unique([receiptId, itemId])
+  @@index([tenantId, itemId])
+}
+
+/// Waste or manual adjustment document. Posted immediately; each line posts one ledger movement.
+model StockAdjustment {
+  id              String                @id @default(uuid()) @db.Uuid
+  tenantId        String                @db.Uuid
+  locationId      String                @db.Uuid
+  clientRequestId String                @db.Uuid
+  kind            StockAdjustmentKind
+  reason          StockAdjustmentReason
+  notes           String?               @db.VarChar(500)
+  totalAmount     Decimal?              @db.Decimal(20, 6)
+  occurredAt      DateTime              @default(now()) @db.Timestamptz(3)
+  createdById     String?               @db.Uuid
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  location        StockLocation         @relation(fields: [locationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  createdBy       User?                 @relation("StockAdjustmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  lines           StockAdjustmentLine[]
+
+  @@unique([tenantId, clientRequestId])
+  @@unique([id, tenantId])
+  @@index([tenantId, kind, occurredAt])
+  @@index([tenantId, locationId, occurredAt])
+}
+
+model StockAdjustmentLine {
+  id            String                 @id @default(uuid()) @db.Uuid
+  tenantId      String                 @db.Uuid
+  adjustmentId  String                 @db.Uuid
+  itemId        String                 @db.Uuid
+  unitId        String                 @db.Uuid
+  direction     StockMovementDirection
+  inputQuantity Decimal                @db.Decimal(20, 6)
+  factorToBase  Decimal                @db.Decimal(20, 9)
+  quantity      Decimal                @db.Decimal(20, 6)
+  unitCost      Decimal?               @db.Decimal(20, 8)
+  amount        Decimal?               @db.Decimal(20, 6)
+  createdAt     DateTime               @default(now()) @db.Timestamptz(3)
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  adjustment    StockAdjustment        @relation(fields: [adjustmentId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  item          InventoryItem          @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  unit          InventoryUnit          @relation(fields: [unitId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([adjustmentId, itemId])
+  @@index([tenantId, itemId])
+}
+
+/// Stock count session for one location: COUNTING -> REVIEW -> POSTED, or CANCELLED before posting.
+/// A migration-only partial unique index allows one open (COUNTING/REVIEW) session per location.
+model Stocktake {
+  id              String          @id @default(uuid()) @db.Uuid
+  tenantId        String          @db.Uuid
+  locationId      String          @db.Uuid
+  clientRequestId String          @db.Uuid
+  status          StocktakeStatus @default(COUNTING)
+  notes           String?         @db.VarChar(500)
+  createdById     String?         @db.Uuid
+  submittedById   String?         @db.Uuid
+  submittedAt     DateTime?       @db.Timestamptz(3)
+  approvedById    String?         @db.Uuid
+  postedAt        DateTime?       @db.Timestamptz(3)
+  cancelledById   String?         @db.Uuid
+  cancelledAt     DateTime?       @db.Timestamptz(3)
+  cancelReason    String?         @db.VarChar(500)
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  location        StockLocation   @relation(fields: [locationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  createdBy       User?           @relation("StocktakeCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  submittedBy     User?           @relation("StocktakeSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+  approvedBy      User?           @relation("StocktakeApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  cancelledBy     User?           @relation("StocktakeCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
+  lines           StocktakeLine[]
+
+  @@unique([tenantId, clientRequestId])
+  @@unique([id, tenantId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, locationId, createdAt])
+}
+
+/// One counted item. expectedQuantity is the ledger balance when the count was recorded, so sales posted
+/// while counting continues are kept: posting applies counted - expected on top of the live balance.
+model StocktakeLine {
+  id               String        @id @default(uuid()) @db.Uuid
+  tenantId         String        @db.Uuid
+  stocktakeId      String        @db.Uuid
+  itemId           String        @db.Uuid
+  unitId           String        @db.Uuid
+  inputQuantity    Decimal       @db.Decimal(20, 6)
+  factorToBase     Decimal       @db.Decimal(20, 9)
+  countedQuantity  Decimal       @db.Decimal(20, 6)
+  expectedQuantity Decimal       @db.Decimal(20, 6)
+  varianceQuantity Decimal       @db.Decimal(20, 6)
+  unitCost         Decimal?      @db.Decimal(20, 8)
+  varianceAmount   Decimal?      @db.Decimal(20, 6)
+  notes            String?       @db.VarChar(500)
+  countedById      String?       @db.Uuid
+  countedAt        DateTime      @default(now()) @db.Timestamptz(3)
+  tenant           Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  stocktake        Stocktake     @relation(fields: [stocktakeId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  item             InventoryItem @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  unit             InventoryUnit @relation(fields: [unitId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  countedBy        User?         @relation("StocktakeCounter", fields: [countedById], references: [id], onDelete: SetNull)
+
+  @@unique([stocktakeId, itemId])
   @@index([tenantId, itemId])
 }

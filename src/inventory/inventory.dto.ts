@@ -1,8 +1,12 @@
 import {
   InventoryItemType,
   ProductInventoryMode,
+  StockAdjustmentKind,
+  StockAdjustmentReason,
   StockLocationType,
+  StockMovementDirection,
   StockMovementType,
+  StocktakeStatus,
   UnitConversionMode,
   UnitDimension,
 } from '@prisma/client';
@@ -219,4 +223,71 @@ export class ConfigureProductInventoryDto {
   @Type(() => RecipeLineDto)
   lines?: RecipeLineDto[];
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+
+export class ListStockAdjustmentsDto extends InventoryPageDto {
+  @IsOptional() @IsEnum(StockAdjustmentKind) kind?: StockAdjustmentKind;
+  @IsOptional() @IsEnum(StockAdjustmentReason) reason?: StockAdjustmentReason;
+  @IsOptional() @IsUUID() locationId?: string;
+  @IsOptional() @IsDateString() dateFrom?: string;
+  @IsOptional() @IsDateString() dateTo?: string;
+  @IsOptional() @IsIn(['occurredAt', 'createdAt']) sortBy = 'occurredAt';
+  sortOrder: 'asc' | 'desc' = 'desc';
+}
+
+export class StockAdjustmentLineDto {
+  @IsUUID() itemId!: string;
+  @IsUUID() unitId!: string;
+  @IsString() @Matches(QUANTITY_PATTERN) quantity!: string;
+  /** Required for adjustments; waste always takes stock out. */
+  @IsOptional()
+  @IsEnum(StockMovementDirection)
+  direction?: StockMovementDirection;
+}
+
+export class CreateStockAdjustmentDto {
+  @IsUUID() clientRequestId!: string;
+  @IsUUID() locationId!: string;
+  @IsEnum(StockAdjustmentReason) reason!: StockAdjustmentReason;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @IsOptional() @IsDateString() occurredAt?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => StockAdjustmentLineDto)
+  lines!: StockAdjustmentLineDto[];
+}
+
+export class ListStocktakesDto extends InventoryPageDto {
+  @IsOptional() @IsEnum(StocktakeStatus) status?: StocktakeStatus;
+  @IsOptional() @IsUUID() locationId?: string;
+  @IsOptional() @IsIn(['createdAt', 'postedAt']) sortBy = 'createdAt';
+  sortOrder: 'asc' | 'desc' = 'desc';
+}
+
+export class CreateStocktakeDto {
+  @IsUUID() clientRequestId!: string;
+  @IsUUID() locationId!: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+
+export class StocktakeCountDto {
+  @IsUUID() itemId!: string;
+  @IsUUID() unitId!: string;
+  @IsString() @Matches(QUANTITY_PATTERN) quantity!: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+
+export class RecordStocktakeCountsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => StocktakeCountDto)
+  lines!: StocktakeCountDto[];
+}
+
+export class CancelStocktakeDto {
+  @IsString() @MinLength(3) @MaxLength(500) reason!: string;
 }

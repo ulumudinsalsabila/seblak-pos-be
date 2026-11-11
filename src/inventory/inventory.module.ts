@@ -5,6 +5,8 @@ import { InventoryPermissionsGuard } from './inventory-permissions.guard';
 import { InventoryService } from './inventory.service';
 import { InventoryLedgerService } from './inventory-ledger.service';
 import { PurchaseReceiptsService } from './purchase-receipts.service';
+import { StockAdjustmentsService } from './stock-adjustments.service';
+import { StocktakesService } from './stocktakes.service';
 
 @Module({
   controllers: [InventoryController],
@@ -14,6 +16,8 @@ import { PurchaseReceiptsService } from './purchase-receipts.service';
     InventoryPermissionsGuard,
     InventoryLedgerService,
     PurchaseReceiptsService,
+    StockAdjustmentsService,
+    StocktakesService,
   ],
   exports: [InventoryService, InventoryAccessService, InventoryLedgerService],
 })

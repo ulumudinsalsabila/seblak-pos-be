@@ -21,6 +21,17 @@ The additive hybrid-inventory foundation exposes:
 - `GET/PUT /inventory/recipes`
 - `GET/POST /inventory/purchases` (receiving; weighted-average cost)
 - `GET /inventory/reconciliation` (balance vs ledger drift)
+- `GET /inventory/adjustments`, `POST /inventory/waste`, `POST /inventory/adjustments`
+  (mandatory reason; adjustments also require notes)
+- `GET/POST /inventory/stocktakes`, `GET /inventory/stocktakes/:id`,
+  `PUT /inventory/stocktakes/:id/counts`, `DELETE /inventory/stocktakes/:id/counts/:itemId`,
+  `POST /inventory/stocktakes/:id/{submit,reopen,approve,cancel}`
+
+Stocktakes run COUNTING -> REVIEW -> POSTED (or CANCELLED before posting), one
+open session per location. Each count snapshots the ledger balance when it is
+recorded; approval posts only `counted - expected`, so sales during counting are
+kept instead of being overwritten. Approval requires
+`APPROVE_INVENTORY_STOCKTAKE` (owner by default).
 
 Inventory data is tenant-scoped. Costs and the immutable ledger require their
 own inventory permissions; a super admin never receives tenant inventory access
