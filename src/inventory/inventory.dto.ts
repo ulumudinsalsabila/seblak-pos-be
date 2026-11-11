@@ -435,3 +435,9 @@ export class ShipStockTransferDto {
 export class ReceiveStockTransferDto extends TransferLinesDto {
   @IsUUID() clientRequestId!: string;
 }
+
+export class FoodCostReportDto {
+  @IsDateString() dateFrom!: string;
+  @IsDateString() dateTo!: string;
+  @IsOptional() @IsUUID() outletId?: string;
+}

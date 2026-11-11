@@ -37,6 +37,7 @@ import {
   CreateStockTransferDto,
   CreateStocktakeDto,
   CreateUnitDto,
+  FoodCostReportDto,
   ListBalancesDto,
   ListItemsDto,
   ListLocationsDto,
@@ -65,6 +66,7 @@ import { MenuOptionConsumptionService } from './menu-option-consumption.service'
 import { PrepService } from './prep.service';
 import { StockRequestsService } from './stock-requests.service';
 import { StockTransfersService } from './stock-transfers.service';
+import { InventoryReportsService } from './inventory-reports.service';
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, InventoryPermissionsGuard)
@@ -79,6 +81,7 @@ export class InventoryController {
     private readonly prep: PrepService,
     private readonly requests: StockRequestsService,
     private readonly transfers: StockTransfersService,
+    private readonly reports: InventoryReportsService,
   ) {}
 
   private showCost(user: AuthUser) {
@@ -92,8 +95,46 @@ export class InventoryController {
       user,
       InventoryPermission.VIEW_INVENTORY_COST,
     );
+    const tenantId = requireTenant(user);
+    const [overview, inTransit] = await Promise.all([
+      this.inventory.overview(tenantId, showCost),
+      this.reports.inTransit(tenantId),
+    ]);
     return {
-      data: await this.inventory.overview(requireTenant(user), showCost),
+      data: {
+        ...overview,
+        inTransit: {
+          lines: inTransit.lines,
+          ...(showCost ? { value: inTransit.value } : {}),
+        },
+      },
+      meta: null,
+    };
+  }
+
+  @Get('alerts')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  async alerts(@CurrentUser() user: AuthUser) {
+    return {
+      data: await this.reports.alerts(
+        requireTenant(user),
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Get('reports/food-cost')
+  @InventoryPermissions(
+    InventoryPermission.VIEW_INVENTORY,
+    InventoryPermission.VIEW_INVENTORY_COST,
+  )
+  async foodCostReport(
+    @CurrentUser() user: AuthUser,
+    @Query() query: FoodCostReportDto,
+  ) {
+    return {
+      data: await this.reports.foodCost(requireTenant(user), query),
       meta: null,
     };
   }

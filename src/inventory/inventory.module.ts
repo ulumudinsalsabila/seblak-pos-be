@@ -11,6 +11,7 @@ import { MenuOptionConsumptionService } from './menu-option-consumption.service'
 import { PrepService } from './prep.service';
 import { StockRequestsService } from './stock-requests.service';
 import { StockTransfersService } from './stock-transfers.service';
+import { InventoryReportsService } from './inventory-reports.service';
 
 @Module({
   controllers: [InventoryController],
@@ -26,6 +27,7 @@ import { StockTransfersService } from './stock-transfers.service';
     PrepService,
     StockTransfersService,
     StockRequestsService,
+    InventoryReportsService,
   ],
   exports: [
     InventoryService,

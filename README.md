@@ -21,6 +21,10 @@ The additive hybrid-inventory foundation exposes:
 - `GET/PUT /inventory/recipes`
 - `GET/POST /inventory/purchases` (receiving; weighted-average cost)
 - `GET /inventory/reconciliation` (balance vs ledger drift)
+- `GET /inventory/alerts` (stock outs, low stock, pending approvals, stale transfers
+  and prep batches, purchase price jumps, balances without cost)
+- `GET /inventory/reports/food-cost?dateFrom=&dateTo=&outletId=` (theoretical vs
+  actual food cost; requires cost access)
 - `GET/POST /inventory/requests`, `GET /inventory/requests/:id`,
   `POST /inventory/requests/:id/{approve,reject,cancel}` (approval creates the transfer)
 - `GET/POST /inventory/transfers`, `GET /inventory/transfers/:id`,
@@ -58,6 +62,21 @@ Migration `20261110193000_add_inventory_foundation` only adds inventory tables,
 canonical units, and default outlet locations. It deliberately does not copy
 `Product.stock`, alter checkout, or enable stock posting for sales. Opening
 balances and cutover require a separate reconciled rollout.
+
+### Inventory rollout checklist
+
+1. Back up the database, then `npm run db:deploy`. Inventory migrations only
+   add tables and enum values.
+2. Units and items: check the canonical units, create items (ingredients,
+   semi-finished, packaged) with base units, reorder points and conversions.
+3. Locations: one location per outlet (seeded) plus any warehouse.
+4. Opening balances with unit cost for every item that has stock, so food cost
+   is complete (`GET /inventory/overview` reports balances without cost).
+5. Mappings: recipe or direct item for each product, ingredients for menu
+   options, prep recipes for semi-finished items.
+6. Run sales for a day, then check `GET /inventory/reconciliation` (must be
+   reconciled) and the food-cost report before relying on it.
+7. Do a first stocktake per location to align physical and system stock.
 
 Perintah utama:
 
