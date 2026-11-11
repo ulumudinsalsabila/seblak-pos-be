@@ -18,6 +18,9 @@ The additive hybrid-inventory foundation exposes:
 - `GET /inventory/balances`
 - `GET /inventory/movements`
 - `POST /inventory/opening-balances` (owner or explicit permission)
+- `GET/PUT /inventory/recipes`
+- `GET/POST /inventory/purchases` (receiving; weighted-average cost)
+- `GET /inventory/reconciliation` (balance vs ledger drift)
 
 Inventory data is tenant-scoped. Costs and the immutable ledger require their
 own inventory permissions; a super admin never receives tenant inventory access

@@ -21,11 +21,13 @@ import {
   ConfigureProductInventoryDto,
   CreateItemDto,
   CreateLocationDto,
+  CreatePurchaseReceiptDto,
   CreateUnitDto,
   ListBalancesDto,
   ListItemsDto,
   ListLocationsDto,
   ListMovementsDto,
+  ListPurchaseReceiptsDto,
   ListUnitsDto,
   PostOpeningBalancesDto,
   UpdateItemDto,
@@ -34,6 +36,7 @@ import {
 import { InventoryPermissions } from './inventory-permissions';
 import { InventoryPermissionsGuard } from './inventory-permissions.guard';
 import { InventoryService } from './inventory.service';
+import { PurchaseReceiptsService } from './purchase-receipts.service';
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, InventoryPermissionsGuard)
@@ -41,6 +44,7 @@ export class InventoryController {
   constructor(
     private readonly inventory: InventoryService,
     private readonly access: InventoryAccessService,
+    private readonly purchases: PurchaseReceiptsService,
   ) {}
 
   @Get('overview')
@@ -212,6 +216,40 @@ export class InventoryController {
         user.id,
         dto,
       ),
+      meta: null,
+    };
+  }
+
+  @Get('purchases')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  async listPurchases(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListPurchaseReceiptsDto,
+  ) {
+    const showCost = await this.access.has(
+      user,
+      InventoryPermission.VIEW_INVENTORY_COST,
+    );
+    return this.purchases.list(requireTenant(user), query, showCost);
+  }
+
+  @Post('purchases')
+  @InventoryPermissions(InventoryPermission.RECEIVE_INVENTORY_PURCHASES)
+  async createPurchase(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreatePurchaseReceiptDto,
+  ) {
+    return {
+      data: await this.purchases.create(requireTenant(user), user.id, dto),
+      meta: null,
+    };
+  }
+
+  @Get('reconciliation')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY_LEDGER)
+  async reconciliation(@CurrentUser() user: AuthUser) {
+    return {
+      data: await this.purchases.reconciliation(requireTenant(user)),
       meta: null,
     };
   }

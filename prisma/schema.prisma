@@ -145,6 +145,7 @@ enum InventoryPermission {
   MANAGE_INVENTORY_LOCATIONS
   POST_INVENTORY_OPENING
   MANAGE_INVENTORY_RECIPES
+  RECEIVE_INVENTORY_PURCHASES
 }
 
 enum ProductInventoryMode {
@@ -169,6 +170,7 @@ model User {
   inventoryGrants    InventoryPermissionGrant[]
   inventoryMovements StockMovement[]            @relation("InventoryMovementActor")
   inventoryAudits    InventoryAuditEvent[]      @relation("InventoryAuditActor")
+  purchaseReceipts   PurchaseReceipt[]          @relation("PurchaseReceiptCreator")
 }
 
 model Tenant {
@@ -190,6 +192,8 @@ model Tenant {
   productInventoryConfigs ProductInventoryConfig[]
   inventoryRecipeVersions InventoryRecipeVersion[]
   inventoryRecipeLines    InventoryRecipeLine[]
+  purchaseReceipts        PurchaseReceipt[]
+  purchaseReceiptLines    PurchaseReceiptLine[]
   theme                   TenantTheme?
 }
 
@@ -464,21 +468,22 @@ model DailyInvoiceCounter {
 }
 
 model InventoryUnit {
-  id                    String               @id @default(uuid()) @db.Uuid
-  tenantId              String               @db.Uuid
-  code                  String               @db.VarChar(30)
-  name                  String               @db.VarChar(100)
-  symbol                String               @db.VarChar(20)
+  id                    String                @id @default(uuid()) @db.Uuid
+  tenantId              String                @db.Uuid
+  code                  String                @db.VarChar(30)
+  name                  String                @db.VarChar(100)
+  symbol                String                @db.VarChar(20)
   dimension             UnitDimension
-  isBase                Boolean              @default(false)
-  factorToDimensionBase Decimal              @default(1) @db.Decimal(20, 9)
-  precision             Int                  @default(3)
-  isActive              Boolean              @default(true)
-  createdAt             DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt             DateTime             @updatedAt @db.Timestamptz(3)
-  tenant                Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  isBase                Boolean               @default(false)
+  factorToDimensionBase Decimal               @default(1) @db.Decimal(20, 9)
+  precision             Int                   @default(3)
+  isActive              Boolean               @default(true)
+  createdAt             DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime              @updatedAt @db.Timestamptz(3)
+  tenant                Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   baseItems             InventoryItem[]
   conversions           ItemUnitConversion[]
+  purchaseReceiptLines  PurchaseReceiptLine[]
 
   @@unique([tenantId, code])
   @@unique([id, tenantId])
@@ -504,6 +509,7 @@ model InventoryItem {
   movements            StockMovement[]
   directProductConfigs ProductInventoryConfig[]
   recipeLines          InventoryRecipeLine[]
+  purchaseReceiptLines PurchaseReceiptLine[]
 
   @@unique([tenantId, sku])
   @@unique([id, tenantId])
@@ -586,21 +592,22 @@ model InventoryRecipeLine {
 }
 
 model StockLocation {
-  id             String                     @id @default(uuid()) @db.Uuid
-  tenantId       String                     @db.Uuid
-  outletId       String?                    @db.Uuid
-  code           String                     @db.VarChar(50)
-  name           String                     @db.VarChar(100)
-  type           StockLocationType
-  isActive       Boolean                    @default(true)
-  createdAt      DateTime                   @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime                   @updatedAt @db.Timestamptz(3)
-  tenant         Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  outlet         Outlet?                    @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  balances       StockBalance[]
-  movements      StockMovement[]
-  grants         InventoryPermissionGrant[]
-  productConfigs ProductInventoryConfig[]
+  id               String                     @id @default(uuid()) @db.Uuid
+  tenantId         String                     @db.Uuid
+  outletId         String?                    @db.Uuid
+  code             String                     @db.VarChar(50)
+  name             String                     @db.VarChar(100)
+  type             StockLocationType
+  isActive         Boolean                    @default(true)
+  createdAt        DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime                   @updatedAt @db.Timestamptz(3)
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outlet           Outlet?                    @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  balances         StockBalance[]
+  movements        StockMovement[]
+  grants           InventoryPermissionGrant[]
+  productConfigs   ProductInventoryConfig[]
+  purchaseReceipts PurchaseReceipt[]
 
   @@unique([tenantId, code])
   @@unique([id, tenantId])
@@ -688,4 +695,49 @@ model InventoryAuditEvent {
 
   @@index([tenantId, entityType, entityId, createdAt], map: "InventoryAuditEvent_tenant_entity_time_idx")
   @@index([tenantId, actorId, createdAt], map: "InventoryAuditEvent_tenant_actor_time_idx")
+}
+
+model PurchaseReceipt {
+  id              String                @id @default(uuid()) @db.Uuid
+  tenantId        String                @db.Uuid
+  locationId      String                @db.Uuid
+  clientRequestId String                @db.Uuid
+  supplierName    String                @db.VarChar(150)
+  referenceNo     String?               @db.VarChar(100)
+  notes           String?               @db.VarChar(500)
+  totalAmount     Decimal               @db.Decimal(20, 6)
+  receivedAt      DateTime              @default(now()) @db.Timestamptz(3)
+  createdById     String?               @db.Uuid
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  location        StockLocation         @relation(fields: [locationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  createdBy       User?                 @relation("PurchaseReceiptCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  lines           PurchaseReceiptLine[]
+
+  @@unique([tenantId, clientRequestId])
+  @@unique([id, tenantId])
+  @@index([tenantId, receivedAt])
+  @@index([tenantId, locationId, receivedAt])
+}
+
+model PurchaseReceiptLine {
+  id             String          @id @default(uuid()) @db.Uuid
+  tenantId       String          @db.Uuid
+  receiptId      String          @db.Uuid
+  itemId         String          @db.Uuid
+  unitId         String          @db.Uuid
+  inputQuantity  Decimal         @db.Decimal(20, 6)
+  inputUnitPrice Decimal         @db.Decimal(20, 8)
+  factorToBase   Decimal         @db.Decimal(20, 9)
+  quantity       Decimal         @db.Decimal(20, 6)
+  unitCost       Decimal         @db.Decimal(20, 8)
+  amount         Decimal         @db.Decimal(20, 6)
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  receipt        PurchaseReceipt @relation(fields: [receiptId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  item           InventoryItem   @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  unit           InventoryUnit   @relation(fields: [unitId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([receiptId, itemId])
+  @@index([tenantId, itemId])
 }

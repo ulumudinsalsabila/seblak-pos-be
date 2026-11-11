@@ -170,6 +170,37 @@ export class PostOpeningBalancesDto {
   lines!: OpeningBalanceLineDto[];
 }
 
+export class ListPurchaseReceiptsDto extends InventoryPageDto {
+  @IsOptional() @IsUUID() locationId?: string;
+  @IsOptional() @IsDateString() dateFrom?: string;
+  @IsOptional() @IsDateString() dateTo?: string;
+  @IsOptional() @IsIn(['receivedAt', 'createdAt', 'supplierName']) sortBy =
+    'receivedAt';
+  sortOrder: 'asc' | 'desc' = 'desc';
+}
+
+export class PurchaseReceiptLineDto {
+  @IsUUID() itemId!: string;
+  @IsUUID() unitId!: string;
+  @IsString() @Matches(QUANTITY_PATTERN) quantity!: string;
+  @IsString() @Matches(COST_PATTERN) unitPrice!: string;
+}
+
+export class CreatePurchaseReceiptDto {
+  @IsUUID() clientRequestId!: string;
+  @IsUUID() locationId!: string;
+  @IsString() @MinLength(1) @MaxLength(150) supplierName!: string;
+  @IsOptional() @IsString() @MaxLength(100) referenceNo?: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @IsOptional() @IsDateString() receivedAt?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => PurchaseReceiptLineDto)
+  lines!: PurchaseReceiptLineDto[];
+}
+
 export class RecipeLineDto {
   @IsUUID() itemId!: string;
   @IsString() @Matches(QUANTITY_PATTERN) quantity!: string;
