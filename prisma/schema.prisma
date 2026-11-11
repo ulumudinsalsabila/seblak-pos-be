@@ -153,6 +153,10 @@ enum InventoryPermission {
   COUNT_INVENTORY_STOCKTAKE
   APPROVE_INVENTORY_STOCKTAKE
   POST_INVENTORY_PREP
+  REQUEST_INVENTORY_STOCK
+  APPROVE_INVENTORY_TRANSFERS
+  SHIP_INVENTORY_TRANSFERS
+  RECEIVE_INVENTORY_TRANSFERS
 }
 
 enum StockAdjustmentKind {
@@ -186,32 +190,37 @@ enum ProductInventoryMode {
 }
 
 model User {
-  id                   String                     @id @default(uuid()) @db.Uuid
-  name                 String                     @db.VarChar(100)
-  email                String                     @unique @db.VarChar(254)
-  passwordHash         String
-  role                 Role
-  status               UserStatus                 @default(ACTIVE)
-  createdAt            DateTime                   @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime                   @updatedAt @db.Timestamptz(3)
-  refreshTokens        RefreshToken[]
-  transactions         Transaction[]              @relation("CashierTransactions")
-  voidedTransactions   Transaction[]              @relation("VoidedTransactions")
-  expenses             Expense[]
-  outletMemberships    OutletMembership[]
-  inventoryGrants      InventoryPermissionGrant[]
-  inventoryMovements   StockMovement[]            @relation("InventoryMovementActor")
-  inventoryAudits      InventoryAuditEvent[]      @relation("InventoryAuditActor")
-  purchaseReceipts     PurchaseReceipt[]          @relation("PurchaseReceiptCreator")
-  stockAdjustments     StockAdjustment[]          @relation("StockAdjustmentCreator")
-  stocktakesCreated    Stocktake[]                @relation("StocktakeCreator")
-  stocktakesSubmitted  Stocktake[]                @relation("StocktakeSubmitter")
-  stocktakesApproved   Stocktake[]                @relation("StocktakeApprover")
-  stocktakesCancelled  Stocktake[]                @relation("StocktakeCanceller")
-  stocktakeCounts      StocktakeLine[]            @relation("StocktakeCounter")
-  prepBatchesStarted   PrepBatch[]                @relation("PrepBatchStarter")
-  prepBatchesCompleted PrepBatch[]                @relation("PrepBatchCompleter")
-  prepBatchesVoided    PrepBatch[]                @relation("PrepBatchVoider")
+  id                    String                     @id @default(uuid()) @db.Uuid
+  name                  String                     @db.VarChar(100)
+  email                 String                     @unique @db.VarChar(254)
+  passwordHash          String
+  role                  Role
+  status                UserStatus                 @default(ACTIVE)
+  createdAt             DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime                   @updatedAt @db.Timestamptz(3)
+  refreshTokens         RefreshToken[]
+  transactions          Transaction[]              @relation("CashierTransactions")
+  voidedTransactions    Transaction[]              @relation("VoidedTransactions")
+  expenses              Expense[]
+  outletMemberships     OutletMembership[]
+  inventoryGrants       InventoryPermissionGrant[]
+  inventoryMovements    StockMovement[]            @relation("InventoryMovementActor")
+  inventoryAudits       InventoryAuditEvent[]      @relation("InventoryAuditActor")
+  purchaseReceipts      PurchaseReceipt[]          @relation("PurchaseReceiptCreator")
+  stockAdjustments      StockAdjustment[]          @relation("StockAdjustmentCreator")
+  stocktakesCreated     Stocktake[]                @relation("StocktakeCreator")
+  stocktakesSubmitted   Stocktake[]                @relation("StocktakeSubmitter")
+  stocktakesApproved    Stocktake[]                @relation("StocktakeApprover")
+  stocktakesCancelled   Stocktake[]                @relation("StocktakeCanceller")
+  stocktakeCounts       StocktakeLine[]            @relation("StocktakeCounter")
+  prepBatchesStarted    PrepBatch[]                @relation("PrepBatchStarter")
+  prepBatchesCompleted  PrepBatch[]                @relation("PrepBatchCompleter")
+  prepBatchesVoided     PrepBatch[]                @relation("PrepBatchVoider")
+  stockRequestsMade     StockRequest[]             @relation("StockRequestRequester")
+  stockRequestsReviewed StockRequest[]             @relation("StockRequestReviewer")
+  stockTransfersCreated StockTransfer[]            @relation("StockTransferCreator")
+  stockTransfersShipped StockTransfer[]            @relation("StockTransferShipper")
+  stockTransfersClosed  StockTransfer[]            @relation("StockTransferCloser")
 }
 
 model Tenant {
@@ -244,6 +253,10 @@ model Tenant {
   prepRecipeLines         PrepRecipeLine[]
   prepBatches             PrepBatch[]
   prepBatchInputs         PrepBatchInput[]
+  stockRequests           StockRequest[]
+  stockRequestLines       StockRequestLine[]
+  stockTransfers          StockTransfer[]
+  stockTransferLines      StockTransferLine[]
   theme                   TenantTheme?
 }
 
@@ -570,6 +583,8 @@ model InventoryItem {
   prepRecipeLines      PrepRecipeLine[]
   prepBatchesProduced  PrepBatch[]              @relation("PrepBatchOutput")
   prepBatchInputs      PrepBatchInput[]
+  stockRequestLines    StockRequestLine[]
+  stockTransferLines   StockTransferLine[]
 
   @@unique([tenantId, sku])
   @@unique([id, tenantId])
@@ -672,6 +687,10 @@ model StockLocation {
   stocktakes         Stocktake[]
   optionConsumptions MenuOptionConsumption[]
   prepBatches        PrepBatch[]
+  requestsFrom       StockRequest[]             @relation("StockRequestSource")
+  requestsTo         StockRequest[]             @relation("StockRequestDestination")
+  transfersFrom      StockTransfer[]            @relation("StockTransferSource")
+  transfersTo        StockTransfer[]            @relation("StockTransferDestination")
 
   @@unique([tenantId, code])
   @@unique([id, tenantId])
@@ -1025,5 +1044,120 @@ model PrepBatchInput {
   item      InventoryItem @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
 
   @@unique([batchId, itemId])
+  @@index([tenantId, itemId])
+}
+
+enum StockRequestStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+  PARTIALLY_FULFILLED
+  FULFILLED
+}
+
+enum StockTransferStatus {
+  APPROVED
+  SHIPPED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+/// A location asking another (usually a warehouse) for stock. Approval turns it into a transfer.
+model StockRequest {
+  id                    String             @id @default(uuid()) @db.Uuid
+  tenantId              String             @db.Uuid
+  clientRequestId       String             @db.Uuid
+  sourceLocationId      String             @db.Uuid
+  destinationLocationId String             @db.Uuid
+  status                StockRequestStatus @default(SUBMITTED)
+  notes                 String?            @db.VarChar(500)
+  requestedById         String?            @db.Uuid
+  requestedAt           DateTime           @default(now()) @db.Timestamptz(3)
+  reviewedById          String?            @db.Uuid
+  reviewedAt            DateTime?          @db.Timestamptz(3)
+  reviewNotes           String?            @db.VarChar(500)
+  updatedAt             DateTime           @updatedAt @db.Timestamptz(3)
+  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sourceLocation        StockLocation      @relation("StockRequestSource", fields: [sourceLocationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  destinationLocation   StockLocation      @relation("StockRequestDestination", fields: [destinationLocationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  requestedBy           User?              @relation("StockRequestRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  reviewedBy            User?              @relation("StockRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  lines                 StockRequestLine[]
+  transfer              StockTransfer?
+
+  @@unique([tenantId, clientRequestId])
+  @@unique([id, tenantId])
+  @@index([tenantId, status, requestedAt])
+}
+
+model StockRequestLine {
+  id               String        @id @default(uuid()) @db.Uuid
+  tenantId         String        @db.Uuid
+  requestId        String        @db.Uuid
+  itemId           String        @db.Uuid
+  quantity         Decimal       @db.Decimal(20, 6)
+  approvedQuantity Decimal?      @db.Decimal(20, 6)
+  tenant           Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  request          StockRequest  @relation(fields: [requestId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  item             InventoryItem @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([requestId, itemId])
+  @@index([tenantId, itemId])
+}
+
+/// Stock moving between two locations of one tenant. Shipping takes it out of the source; it is in transit
+/// (shipped - received - lost) until received at the destination, which may happen in several receipts.
+model StockTransfer {
+  id                    String              @id @default(uuid()) @db.Uuid
+  tenantId              String              @db.Uuid
+  clientRequestId       String              @db.Uuid
+  requestId             String?             @unique @db.Uuid
+  sourceLocationId      String              @db.Uuid
+  destinationLocationId String              @db.Uuid
+  status                StockTransferStatus @default(APPROVED)
+  notes                 String?             @db.VarChar(500)
+  createdById           String?             @db.Uuid
+  createdAt             DateTime            @default(now()) @db.Timestamptz(3)
+  shippedById           String?             @db.Uuid
+  shippedAt             DateTime?           @db.Timestamptz(3)
+  lastReceivedAt        DateTime?           @db.Timestamptz(3)
+  closedById            String?             @db.Uuid
+  closedAt              DateTime?           @db.Timestamptz(3)
+  closeReason           String?             @db.VarChar(500)
+  updatedAt             DateTime            @updatedAt @db.Timestamptz(3)
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  request               StockRequest?       @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  sourceLocation        StockLocation       @relation("StockTransferSource", fields: [sourceLocationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  destinationLocation   StockLocation       @relation("StockTransferDestination", fields: [destinationLocationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  createdBy             User?               @relation("StockTransferCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  shippedBy             User?               @relation("StockTransferShipper", fields: [shippedById], references: [id], onDelete: SetNull)
+  closedBy              User?               @relation("StockTransferCloser", fields: [closedById], references: [id], onDelete: SetNull)
+  lines                 StockTransferLine[]
+
+  @@unique([tenantId, clientRequestId])
+  @@unique([id, tenantId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, destinationLocationId, status])
+}
+
+model StockTransferLine {
+  id               String        @id @default(uuid()) @db.Uuid
+  tenantId         String        @db.Uuid
+  transferId       String        @db.Uuid
+  itemId           String        @db.Uuid
+  quantity         Decimal       @db.Decimal(20, 6)
+  shippedQuantity  Decimal       @default(0) @db.Decimal(20, 6)
+  /// Source average cost at shipping; the destination receives at this cost.
+  unitCost         Decimal?      @db.Decimal(20, 8)
+  receivedQuantity Decimal       @default(0) @db.Decimal(20, 6)
+  /// Shipped but written off as lost in transit when receiving was closed short.
+  lostQuantity     Decimal       @default(0) @db.Decimal(20, 6)
+  tenant           Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  transfer         StockTransfer @relation(fields: [transferId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  item             InventoryItem @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([transferId, itemId])
   @@index([tenantId, itemId])
 }

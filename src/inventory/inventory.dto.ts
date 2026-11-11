@@ -7,6 +7,8 @@ import {
   StockLocationType,
   StockMovementDirection,
   StockMovementType,
+  StockRequestStatus,
+  StockTransferStatus,
   StocktakeStatus,
   UnitConversionMode,
   UnitDimension,
@@ -359,4 +361,77 @@ export class VoidPrepBatchDto {
   @IsString() @MinLength(3) @MaxLength(500) reason!: string;
   /** RESTOCK returns the issued inputs; WASTE records them as spoiled. */
   @IsIn(['RESTOCK', 'WASTE']) disposition!: 'RESTOCK' | 'WASTE';
+}
+
+export class TransferLineDto {
+  @IsUUID() itemId!: string;
+  /** In the item's base unit. */
+  @IsString() @Matches(QUANTITY_PATTERN) quantity!: string;
+}
+
+class TransferLinesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => TransferLineDto)
+  lines!: TransferLineDto[];
+}
+
+export class ListStockRequestsDto extends InventoryPageDto {
+  @IsOptional() @IsEnum(StockRequestStatus) status?: StockRequestStatus;
+  @IsOptional() @IsUUID() locationId?: string;
+  @IsOptional() @IsIn(['requestedAt', 'reviewedAt']) sortBy = 'requestedAt';
+  sortOrder: 'asc' | 'desc' = 'desc';
+}
+
+export class CreateStockRequestDto extends TransferLinesDto {
+  @IsUUID() clientRequestId!: string;
+  /** Where the stock comes from, usually a warehouse. */
+  @IsUUID() sourceLocationId!: string;
+  @IsUUID() destinationLocationId!: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+
+export class ApproveStockRequestDto {
+  /** Approved quantity per item; omitted items are approved as requested, 0 drops an item. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => TransferLineDto)
+  lines?: TransferLineDto[];
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+
+export class ReasonDto {
+  @IsString() @MinLength(3) @MaxLength(500) reason!: string;
+}
+
+export class ListStockTransfersDto extends InventoryPageDto {
+  @IsOptional() @IsEnum(StockTransferStatus) status?: StockTransferStatus;
+  @IsOptional() @IsUUID() locationId?: string;
+  @IsOptional() @IsIn(['createdAt', 'shippedAt']) sortBy = 'createdAt';
+  sortOrder: 'asc' | 'desc' = 'desc';
+}
+
+export class CreateStockTransferDto extends TransferLinesDto {
+  @IsUUID() clientRequestId!: string;
+  @IsUUID() sourceLocationId!: string;
+  @IsUUID() destinationLocationId!: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+
+export class ShipStockTransferDto {
+  /** Shipped quantity per item; omitted items ship in full, 0 leaves an item behind. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => TransferLineDto)
+  lines?: TransferLineDto[];
+}
+
+export class ReceiveStockTransferDto extends TransferLinesDto {
+  @IsUUID() clientRequestId!: string;
 }

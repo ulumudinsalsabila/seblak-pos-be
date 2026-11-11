@@ -19,6 +19,7 @@ import { requireTenant } from '../common/tenant-context';
 import { requireOutlet } from '../common/outlet-context';
 import { InventoryAccessService } from './inventory-access.service';
 import {
+  ApproveStockRequestDto,
   CancelStocktakeDto,
   CompletePrepBatchDto,
   ConfigurePrepRecipeDto,
@@ -32,6 +33,8 @@ import {
   CreateLocationDto,
   CreatePurchaseReceiptDto,
   CreateStockAdjustmentDto,
+  CreateStockRequestDto,
+  CreateStockTransferDto,
   CreateStocktakeDto,
   CreateUnitDto,
   ListBalancesDto,
@@ -40,10 +43,15 @@ import {
   ListMovementsDto,
   ListPurchaseReceiptsDto,
   ListStockAdjustmentsDto,
+  ListStockRequestsDto,
+  ListStockTransfersDto,
   ListStocktakesDto,
   ListUnitsDto,
   PostOpeningBalancesDto,
+  ReasonDto,
+  ReceiveStockTransferDto,
   RecordStocktakeCountsDto,
+  ShipStockTransferDto,
   UpdateItemDto,
   UpdateLocationDto,
 } from './inventory.dto';
@@ -55,6 +63,8 @@ import { StockAdjustmentsService } from './stock-adjustments.service';
 import { StocktakesService } from './stocktakes.service';
 import { MenuOptionConsumptionService } from './menu-option-consumption.service';
 import { PrepService } from './prep.service';
+import { StockRequestsService } from './stock-requests.service';
+import { StockTransfersService } from './stock-transfers.service';
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, InventoryPermissionsGuard)
@@ -67,6 +77,8 @@ export class InventoryController {
     private readonly stocktakes: StocktakesService,
     private readonly optionConsumption: MenuOptionConsumptionService,
     private readonly prep: PrepService,
+    private readonly requests: StockRequestsService,
+    private readonly transfers: StockTransfersService,
   ) {}
 
   private showCost(user: AuthUser) {
@@ -470,6 +482,199 @@ export class InventoryController {
   async reconciliation(@CurrentUser() user: AuthUser) {
     return {
       data: await this.purchases.reconciliation(requireTenant(user)),
+      meta: null,
+    };
+  }
+
+  @Get('requests')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  listStockRequests(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListStockRequestsDto,
+  ) {
+    return this.requests.list(requireTenant(user), query);
+  }
+
+  @Get('requests/:id')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  async findStockRequest(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return {
+      data: await this.requests.findOne(requireTenant(user), id),
+      meta: null,
+    };
+  }
+
+  @Post('requests')
+  @InventoryPermissions(InventoryPermission.REQUEST_INVENTORY_STOCK)
+  async createStockRequest(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateStockRequestDto,
+  ) {
+    return {
+      data: await this.requests.create(requireTenant(user), user.id, dto),
+      meta: null,
+    };
+  }
+
+  @Post('requests/:id/approve')
+  @InventoryPermissions(InventoryPermission.APPROVE_INVENTORY_TRANSFERS)
+  async approveStockRequest(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ApproveStockRequestDto,
+  ) {
+    return {
+      data: await this.requests.approve(requireTenant(user), user.id, id, dto),
+      meta: null,
+    };
+  }
+
+  @Post('requests/:id/reject')
+  @InventoryPermissions(InventoryPermission.APPROVE_INVENTORY_TRANSFERS)
+  async rejectStockRequest(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+  ) {
+    return {
+      data: await this.requests.reject(requireTenant(user), user.id, id, dto),
+      meta: null,
+    };
+  }
+
+  @Post('requests/:id/cancel')
+  @InventoryPermissions(InventoryPermission.REQUEST_INVENTORY_STOCK)
+  async cancelStockRequest(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return {
+      data: await this.requests.cancel(requireTenant(user), user.id, id),
+      meta: null,
+    };
+  }
+
+  @Get('transfers')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  async listStockTransfers(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListStockTransfersDto,
+  ) {
+    return this.transfers.list(
+      requireTenant(user),
+      query,
+      await this.showCost(user),
+    );
+  }
+
+  @Get('transfers/:id')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  async findStockTransfer(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return {
+      data: await this.transfers.findOne(
+        requireTenant(user),
+        id,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('transfers')
+  @InventoryPermissions(InventoryPermission.APPROVE_INVENTORY_TRANSFERS)
+  async createStockTransfer(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateStockTransferDto,
+  ) {
+    return {
+      data: await this.transfers.create(
+        requireTenant(user),
+        user.id,
+        dto,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('transfers/:id/ship')
+  @InventoryPermissions(InventoryPermission.SHIP_INVENTORY_TRANSFERS)
+  async shipStockTransfer(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ShipStockTransferDto,
+  ) {
+    return {
+      data: await this.transfers.ship(
+        requireTenant(user),
+        user.id,
+        id,
+        dto,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('transfers/:id/receive')
+  @InventoryPermissions(InventoryPermission.RECEIVE_INVENTORY_TRANSFERS)
+  async receiveStockTransfer(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReceiveStockTransferDto,
+  ) {
+    return {
+      data: await this.transfers.receive(
+        requireTenant(user),
+        user.id,
+        id,
+        dto,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('transfers/:id/close')
+  @InventoryPermissions(InventoryPermission.APPROVE_INVENTORY_TRANSFERS)
+  async closeStockTransfer(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+  ) {
+    return {
+      data: await this.transfers.close(
+        requireTenant(user),
+        user.id,
+        id,
+        dto,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('transfers/:id/cancel')
+  @InventoryPermissions(InventoryPermission.APPROVE_INVENTORY_TRANSFERS)
+  async cancelStockTransfer(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+  ) {
+    return {
+      data: await this.transfers.cancel(
+        requireTenant(user),
+        user.id,
+        id,
+        dto,
+        await this.showCost(user),
+      ),
       meta: null,
     };
   }

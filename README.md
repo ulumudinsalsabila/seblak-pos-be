@@ -21,6 +21,11 @@ The additive hybrid-inventory foundation exposes:
 - `GET/PUT /inventory/recipes`
 - `GET/POST /inventory/purchases` (receiving; weighted-average cost)
 - `GET /inventory/reconciliation` (balance vs ledger drift)
+- `GET/POST /inventory/requests`, `GET /inventory/requests/:id`,
+  `POST /inventory/requests/:id/{approve,reject,cancel}` (approval creates the transfer)
+- `GET/POST /inventory/transfers`, `GET /inventory/transfers/:id`,
+  `POST /inventory/transfers/:id/{ship,receive,close,cancel}` (shipped stock is in
+  transit until received, possibly in several receipts; closing writes off the rest as lost)
 - `GET /inventory/prep-recipes`, `PUT /inventory/prep-recipes/:outputItemId`
 - `GET/POST /inventory/prep-batches`, `GET /inventory/prep-batches/:id`,
   `POST /inventory/prep-batches/:id/{complete,void}` (semi-finished production;
