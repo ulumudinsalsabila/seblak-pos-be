@@ -21,6 +21,10 @@ The additive hybrid-inventory foundation exposes:
 - `GET/PUT /inventory/recipes`
 - `GET/POST /inventory/purchases` (receiving; weighted-average cost)
 - `GET /inventory/reconciliation` (balance vs ledger drift)
+- `GET /inventory/prep-recipes`, `PUT /inventory/prep-recipes/:outputItemId`
+- `GET/POST /inventory/prep-batches`, `GET /inventory/prep-batches/:id`,
+  `POST /inventory/prep-batches/:id/{complete,void}` (semi-finished production;
+  the actual output carries the whole input cost, so shrinkage raises its unit cost)
 - `GET /inventory/menu-options`, `PUT /inventory/menu-options/:groupId/:valueId`
   (ingredients a topping/spice level consumes per portion sold)
 - `GET /inventory/adjustments`, `POST /inventory/waste`, `POST /inventory/adjustments`

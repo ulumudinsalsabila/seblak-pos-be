@@ -135,6 +135,8 @@ enum StockMovementType {
   WASTE_POSTED
   ADJUSTMENT_POSTED
   STOCKTAKE_VARIANCE_POSTED
+  /// Inputs of a voided prep batch returned to stock.
+  PREP_REVERSED
 }
 
 enum InventoryPermission {
@@ -150,6 +152,7 @@ enum InventoryPermission {
   POST_INVENTORY_ADJUSTMENTS
   COUNT_INVENTORY_STOCKTAKE
   APPROVE_INVENTORY_STOCKTAKE
+  POST_INVENTORY_PREP
 }
 
 enum StockAdjustmentKind {
@@ -183,29 +186,32 @@ enum ProductInventoryMode {
 }
 
 model User {
-  id                  String                     @id @default(uuid()) @db.Uuid
-  name                String                     @db.VarChar(100)
-  email               String                     @unique @db.VarChar(254)
-  passwordHash        String
-  role                Role
-  status              UserStatus                 @default(ACTIVE)
-  createdAt           DateTime                   @default(now()) @db.Timestamptz(3)
-  updatedAt           DateTime                   @updatedAt @db.Timestamptz(3)
-  refreshTokens       RefreshToken[]
-  transactions        Transaction[]              @relation("CashierTransactions")
-  voidedTransactions  Transaction[]              @relation("VoidedTransactions")
-  expenses            Expense[]
-  outletMemberships   OutletMembership[]
-  inventoryGrants     InventoryPermissionGrant[]
-  inventoryMovements  StockMovement[]            @relation("InventoryMovementActor")
-  inventoryAudits     InventoryAuditEvent[]      @relation("InventoryAuditActor")
-  purchaseReceipts    PurchaseReceipt[]          @relation("PurchaseReceiptCreator")
-  stockAdjustments    StockAdjustment[]          @relation("StockAdjustmentCreator")
-  stocktakesCreated   Stocktake[]                @relation("StocktakeCreator")
-  stocktakesSubmitted Stocktake[]                @relation("StocktakeSubmitter")
-  stocktakesApproved  Stocktake[]                @relation("StocktakeApprover")
-  stocktakesCancelled Stocktake[]                @relation("StocktakeCanceller")
-  stocktakeCounts     StocktakeLine[]            @relation("StocktakeCounter")
+  id                   String                     @id @default(uuid()) @db.Uuid
+  name                 String                     @db.VarChar(100)
+  email                String                     @unique @db.VarChar(254)
+  passwordHash         String
+  role                 Role
+  status               UserStatus                 @default(ACTIVE)
+  createdAt            DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                   @updatedAt @db.Timestamptz(3)
+  refreshTokens        RefreshToken[]
+  transactions         Transaction[]              @relation("CashierTransactions")
+  voidedTransactions   Transaction[]              @relation("VoidedTransactions")
+  expenses             Expense[]
+  outletMemberships    OutletMembership[]
+  inventoryGrants      InventoryPermissionGrant[]
+  inventoryMovements   StockMovement[]            @relation("InventoryMovementActor")
+  inventoryAudits      InventoryAuditEvent[]      @relation("InventoryAuditActor")
+  purchaseReceipts     PurchaseReceipt[]          @relation("PurchaseReceiptCreator")
+  stockAdjustments     StockAdjustment[]          @relation("StockAdjustmentCreator")
+  stocktakesCreated    Stocktake[]                @relation("StocktakeCreator")
+  stocktakesSubmitted  Stocktake[]                @relation("StocktakeSubmitter")
+  stocktakesApproved   Stocktake[]                @relation("StocktakeApprover")
+  stocktakesCancelled  Stocktake[]                @relation("StocktakeCanceller")
+  stocktakeCounts      StocktakeLine[]            @relation("StocktakeCounter")
+  prepBatchesStarted   PrepBatch[]                @relation("PrepBatchStarter")
+  prepBatchesCompleted PrepBatch[]                @relation("PrepBatchCompleter")
+  prepBatchesVoided    PrepBatch[]                @relation("PrepBatchVoider")
 }
 
 model Tenant {
@@ -234,6 +240,10 @@ model Tenant {
   stocktakes              Stocktake[]
   stocktakeLines          StocktakeLine[]
   menuOptionConsumptions  MenuOptionConsumption[]
+  prepRecipes             PrepRecipe[]
+  prepRecipeLines         PrepRecipeLine[]
+  prepBatches             PrepBatch[]
+  prepBatchInputs         PrepBatchInput[]
   theme                   TenantTheme?
 }
 
@@ -556,6 +566,10 @@ model InventoryItem {
   stockAdjustmentLines StockAdjustmentLine[]
   stocktakeLines       StocktakeLine[]
   optionConsumptions   MenuOptionConsumption[]
+  prepRecipesProduced  PrepRecipe[]             @relation("PrepRecipeOutput")
+  prepRecipeLines      PrepRecipeLine[]
+  prepBatchesProduced  PrepBatch[]              @relation("PrepBatchOutput")
+  prepBatchInputs      PrepBatchInput[]
 
   @@unique([tenantId, sku])
   @@unique([id, tenantId])
@@ -657,6 +671,7 @@ model StockLocation {
   stockAdjustments   StockAdjustment[]
   stocktakes         Stocktake[]
   optionConsumptions MenuOptionConsumption[]
+  prepBatches        PrepBatch[]
 
   @@unique([tenantId, code])
   @@unique([id, tenantId])
@@ -918,5 +933,97 @@ model MenuOptionConsumption {
   item       InventoryItem @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
 
   @@unique([outletId, groupId, valueId, itemId])
+  @@index([tenantId, itemId])
+}
+
+enum PrepBatchStatus {
+  IN_PROGRESS
+  COMPLETED
+  VOIDED
+}
+
+/// Standard formula for one semi-finished item, e.g. 1000 g chili + 100 ml oil -> 900 g sambal. Batches copy
+/// the quantities they actually used, so editing a recipe never changes past batches.
+model PrepRecipe {
+  id             String           @id @default(uuid()) @db.Uuid
+  tenantId       String           @db.Uuid
+  outputItemId   String           @db.Uuid
+  outputQuantity Decimal          @db.Decimal(20, 6)
+  notes          String?          @db.VarChar(500)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(3)
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outputItem     InventoryItem    @relation("PrepRecipeOutput", fields: [outputItemId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  lines          PrepRecipeLine[]
+
+  @@unique([tenantId, outputItemId])
+  @@unique([id, tenantId])
+}
+
+model PrepRecipeLine {
+  id        String        @id @default(uuid()) @db.Uuid
+  tenantId  String        @db.Uuid
+  recipeId  String        @db.Uuid
+  itemId    String        @db.Uuid
+  quantity  Decimal       @db.Decimal(20, 6)
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipe    PrepRecipe    @relation(fields: [recipeId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  item      InventoryItem @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([recipeId, itemId])
+  @@index([tenantId, itemId])
+}
+
+/// One production run at a location: inputs are issued when it starts (IN_PROGRESS); completing it receives
+/// the actual output carrying the whole input cost. Voiding an in-progress batch returns or wastes the inputs.
+model PrepBatch {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @db.Uuid
+  locationId      String           @db.Uuid
+  clientRequestId String           @db.Uuid
+  outputItemId    String           @db.Uuid
+  status          PrepBatchStatus  @default(IN_PROGRESS)
+  plannedQuantity Decimal          @db.Decimal(20, 6)
+  actualQuantity  Decimal?         @db.Decimal(20, 6)
+  inputCost       Decimal?         @db.Decimal(20, 6)
+  outputUnitCost  Decimal?         @db.Decimal(20, 8)
+  notes           String?          @db.VarChar(500)
+  startedAt       DateTime         @default(now()) @db.Timestamptz(3)
+  startedById     String?          @db.Uuid
+  completedAt     DateTime?        @db.Timestamptz(3)
+  completedById   String?          @db.Uuid
+  voidedAt        DateTime?        @db.Timestamptz(3)
+  voidedById      String?          @db.Uuid
+  voidReason      String?          @db.VarChar(500)
+  voidDisposition String?          @db.VarChar(20)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  location        StockLocation    @relation(fields: [locationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  outputItem      InventoryItem    @relation("PrepBatchOutput", fields: [outputItemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  startedBy       User?            @relation("PrepBatchStarter", fields: [startedById], references: [id], onDelete: SetNull)
+  completedBy     User?            @relation("PrepBatchCompleter", fields: [completedById], references: [id], onDelete: SetNull)
+  voidedBy        User?            @relation("PrepBatchVoider", fields: [voidedById], references: [id], onDelete: SetNull)
+  inputs          PrepBatchInput[]
+
+  @@unique([tenantId, clientRequestId])
+  @@unique([id, tenantId])
+  @@index([tenantId, status, startedAt])
+  @@index([tenantId, locationId, startedAt])
+}
+
+model PrepBatchInput {
+  id        String        @id @default(uuid()) @db.Uuid
+  tenantId  String        @db.Uuid
+  batchId   String        @db.Uuid
+  itemId    String        @db.Uuid
+  quantity  Decimal       @db.Decimal(20, 6)
+  unitCost  Decimal?      @db.Decimal(20, 8)
+  amount    Decimal?      @db.Decimal(20, 6)
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  batch     PrepBatch     @relation(fields: [batchId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  item      InventoryItem @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([batchId, itemId])
   @@index([tenantId, itemId])
 }

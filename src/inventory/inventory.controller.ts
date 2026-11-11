@@ -20,6 +20,11 @@ import { requireOutlet } from '../common/outlet-context';
 import { InventoryAccessService } from './inventory-access.service';
 import {
   CancelStocktakeDto,
+  CompletePrepBatchDto,
+  ConfigurePrepRecipeDto,
+  ListPrepBatchesDto,
+  StartPrepBatchDto,
+  VoidPrepBatchDto,
   CreateItemConversionDto,
   ConfigureOptionConsumptionDto,
   ConfigureProductInventoryDto,
@@ -49,6 +54,7 @@ import { PurchaseReceiptsService } from './purchase-receipts.service';
 import { StockAdjustmentsService } from './stock-adjustments.service';
 import { StocktakesService } from './stocktakes.service';
 import { MenuOptionConsumptionService } from './menu-option-consumption.service';
+import { PrepService } from './prep.service';
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, InventoryPermissionsGuard)
@@ -60,6 +66,7 @@ export class InventoryController {
     private readonly adjustments: StockAdjustmentsService,
     private readonly stocktakes: StocktakesService,
     private readonly optionConsumption: MenuOptionConsumptionService,
+    private readonly prep: PrepService,
   ) {}
 
   private showCost(user: AuthUser) {
@@ -463,6 +470,114 @@ export class InventoryController {
   async reconciliation(@CurrentUser() user: AuthUser) {
     return {
       data: await this.purchases.reconciliation(requireTenant(user)),
+      meta: null,
+    };
+  }
+
+  @Get('prep-recipes')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  listPrepRecipes(@CurrentUser() user: AuthUser) {
+    return this.prep.listRecipes(requireTenant(user));
+  }
+
+  @Put('prep-recipes/:outputItemId')
+  @InventoryPermissions(InventoryPermission.MANAGE_INVENTORY_RECIPES)
+  async configurePrepRecipe(
+    @CurrentUser() user: AuthUser,
+    @Param('outputItemId', ParseUUIDPipe) outputItemId: string,
+    @Body() dto: ConfigurePrepRecipeDto,
+  ) {
+    return {
+      data: await this.prep.configureRecipe(
+        requireTenant(user),
+        user.id,
+        outputItemId,
+        dto,
+      ),
+      meta: null,
+    };
+  }
+
+  @Get('prep-batches')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  async listPrepBatches(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListPrepBatchesDto,
+  ) {
+    return this.prep.listBatches(
+      requireTenant(user),
+      query,
+      await this.showCost(user),
+    );
+  }
+
+  @Get('prep-batches/:id')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  async findPrepBatch(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return {
+      data: await this.prep.findBatch(
+        requireTenant(user),
+        id,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('prep-batches')
+  @InventoryPermissions(InventoryPermission.POST_INVENTORY_PREP)
+  async startPrepBatch(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: StartPrepBatchDto,
+  ) {
+    return {
+      data: await this.prep.start(
+        requireTenant(user),
+        user.id,
+        dto,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('prep-batches/:id/complete')
+  @InventoryPermissions(InventoryPermission.POST_INVENTORY_PREP)
+  async completePrepBatch(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompletePrepBatchDto,
+  ) {
+    return {
+      data: await this.prep.complete(
+        requireTenant(user),
+        user.id,
+        id,
+        dto,
+        await this.showCost(user),
+      ),
+      meta: null,
+    };
+  }
+
+  @Post('prep-batches/:id/void')
+  @InventoryPermissions(InventoryPermission.POST_INVENTORY_PREP)
+  async voidPrepBatch(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: VoidPrepBatchDto,
+  ) {
+    return {
+      data: await this.prep.void(
+        requireTenant(user),
+        user.id,
+        id,
+        dto,
+        await this.showCost(user),
+      ),
       meta: null,
     };
   }

@@ -1,5 +1,6 @@
 import {
   InventoryItemType,
+  PrepBatchStatus,
   ProductInventoryMode,
   StockAdjustmentKind,
   StockAdjustmentReason,
@@ -307,4 +308,55 @@ export class ConfigureOptionConsumptionDto {
   @ValidateNested({ each: true })
   @Type(() => OptionConsumptionLineDto)
   lines!: OptionConsumptionLineDto[];
+}
+
+export class PrepLineDto {
+  @IsUUID() itemId!: string;
+  /** In the item's base unit. */
+  @IsString() @Matches(QUANTITY_PATTERN) quantity!: string;
+}
+
+export class ConfigurePrepRecipeDto {
+  /** Standard output of one run of the recipe, in the output item's base unit. */
+  @IsString() @Matches(QUANTITY_PATTERN) outputQuantity!: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => PrepLineDto)
+  lines!: PrepLineDto[];
+}
+
+export class ListPrepBatchesDto extends InventoryPageDto {
+  @IsOptional() @IsEnum(PrepBatchStatus) status?: PrepBatchStatus;
+  @IsOptional() @IsUUID() locationId?: string;
+  @IsOptional() @IsUUID() outputItemId?: string;
+  @IsOptional() @IsIn(['startedAt', 'completedAt']) sortBy = 'startedAt';
+  sortOrder: 'asc' | 'desc' = 'desc';
+}
+
+export class StartPrepBatchDto {
+  @IsUUID() clientRequestId!: string;
+  @IsUUID() locationId!: string;
+  @IsUUID() outputItemId!: string;
+  @IsString() @Matches(QUANTITY_PATTERN) plannedQuantity!: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => PrepLineDto)
+  lines!: PrepLineDto[];
+}
+
+export class CompletePrepBatchDto {
+  @IsString() @Matches(QUANTITY_PATTERN) actualQuantity!: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+
+export class VoidPrepBatchDto {
+  @IsString() @MinLength(3) @MaxLength(500) reason!: string;
+  /** RESTOCK returns the issued inputs; WASTE records them as spoiled. */
+  @IsIn(['RESTOCK', 'WASTE']) disposition!: 'RESTOCK' | 'WASTE';
 }

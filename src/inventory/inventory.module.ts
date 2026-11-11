@@ -8,6 +8,7 @@ import { PurchaseReceiptsService } from './purchase-receipts.service';
 import { StockAdjustmentsService } from './stock-adjustments.service';
 import { StocktakesService } from './stocktakes.service';
 import { MenuOptionConsumptionService } from './menu-option-consumption.service';
+import { PrepService } from './prep.service';
 
 @Module({
   controllers: [InventoryController],
@@ -20,6 +21,7 @@ import { MenuOptionConsumptionService } from './menu-option-consumption.service'
     StockAdjustmentsService,
     StocktakesService,
     MenuOptionConsumptionService,
+    PrepService,
   ],
   exports: [
     InventoryService,

@@ -333,32 +333,68 @@ export class StockAdjustmentsService {
   }
 
   /**
-   * Records the ingredients of a voided order the kitchen had already completed. They were consumed at sale
-   * and cannot go back on the shelf, so each consumption is reversed out of the sale and posted as waste
-   * (reason VOIDED_ORDER): stock is unchanged, but the loss shows in the ledger and waste history.
-   * Runs inside the caller's transaction.
+   * Records the ingredients of a voided order the kitchen had already completed as VOIDED_ORDER waste:
+   * they were consumed at sale and cannot go back on the shelf.
    */
   async recordVoidedOrderWaste(
     tx: Prisma.TransactionClient,
     input: VoidedOrderWaste,
   ) {
+    return this.recordConsumedAsWaste(tx, {
+      tenantId: input.tenantId,
+      actorId: input.actorId,
+      locationId: input.locationId,
+      reason: StockAdjustmentReason.VOIDED_ORDER,
+      notes: `Void ${input.invoiceNo}: ${input.voidReason}`,
+      reversal: {
+        type: StockMovementType.SALE_REVERSED,
+        sourceType: 'SALE_VOID_WASTE',
+        keyPrefix: 'sale-void',
+      },
+      consumed: input.consumed,
+      auditPayload: { invoiceNo: input.invoiceNo, reason: 'VOIDED_ORDER' },
+    });
+  }
+
+  /**
+   * Reverses stock that was consumed but physically lost and re-posts it as one waste document (per item
+   * totals): stock is unchanged, but the loss shows in the ledger and waste history. Runs inside the caller's
+   * transaction.
+   */
+  async recordConsumedAsWaste(
+    tx: Prisma.TransactionClient,
+    input: {
+      tenantId: string;
+      actorId: string;
+      locationId: string;
+      reason: StockAdjustmentReason;
+      notes: string;
+      reversal: {
+        type: StockMovementType;
+        sourceType: string;
+        keyPrefix: string;
+      };
+      consumed: VoidedOrderWaste['consumed'];
+      auditPayload: Prisma.InputJsonObject;
+    },
+  ) {
     const { tenantId, actorId, locationId } = input;
     const occurredAt = new Date();
-    const notes = `Void ${input.invoiceNo}: ${input.voidReason}`.slice(0, 500);
+    const notes = input.notes.slice(0, 500);
     const totals = new Map<string, Prisma.Decimal>();
     for (const movement of input.consumed) {
       await this.ledger.post(tx, {
         tenantId,
         locationId,
         itemId: movement.itemId,
-        type: StockMovementType.SALE_REVERSED,
+        type: input.reversal.type,
         direction: StockMovementDirection.IN,
         quantity: movement.quantity,
         unitCost: movement.unitCost,
         incomingCostPolicy: 'PRESERVE',
-        sourceType: 'SALE_VOID_WASTE',
+        sourceType: input.reversal.sourceType,
         sourceId: movement.id,
-        idempotencyKey: `sale-void:${movement.id}`,
+        idempotencyKey: `${input.reversal.keyPrefix}:${movement.id}`,
         notes,
         actorId,
         occurredAt,
@@ -383,7 +419,7 @@ export class StockAdjustmentsService {
         locationId,
         clientRequestId: randomUUID(),
         kind: StockAdjustmentKind.WASTE,
-        reason: StockAdjustmentReason.VOIDED_ORDER,
+        reason: input.reason,
         notes,
         occurredAt,
         createdById: actorId,
@@ -433,7 +469,7 @@ export class StockAdjustmentsService {
         action: 'STOCK_WASTE_POSTED',
         entityType: 'StockAdjustment',
         entityId: adjustment.id,
-        payload: { invoiceNo: input.invoiceNo, reason: 'VOIDED_ORDER' },
+        payload: input.auditPayload,
       },
     });
     return adjustment;
