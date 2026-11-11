@@ -166,6 +166,8 @@ enum StockAdjustmentReason {
   COUNT_CORRECTION
   FOUND
   OTHER
+  /// System-only: ingredients of an order voided after the kitchen completed it.
+  VOIDED_ORDER
 }
 
 enum StocktakeStatus {
@@ -231,6 +233,7 @@ model Tenant {
   stockAdjustmentLines    StockAdjustmentLine[]
   stocktakes              Stocktake[]
   stocktakeLines          StocktakeLine[]
+  menuOptionConsumptions  MenuOptionConsumption[]
   theme                   TenantTheme?
 }
 
@@ -246,26 +249,27 @@ model TenantTheme {
 }
 
 model Outlet {
-  id               String                @id @default(uuid()) @db.Uuid
-  tenantId         String                @db.Uuid
-  name             String                @db.VarChar(100)
-  code             String                @db.VarChar(50)
-  status           OutletStatus          @default(ACTIVE)
-  timezone         String                @default("Asia/Jakarta") @db.VarChar(50)
-  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime              @updatedAt @db.Timestamptz(3)
-  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  memberships      OutletMembership[]
-  categories       Category[]
-  products         Product[]
-  transactions     Transaction[]
-  transactionItems TransactionItem[]
-  expenses         Expense[]
-  settings         StoreSettings?
-  invoiceCounters  DailyInvoiceCounter[]
-  feeConfigs       FeeConfig[]
-  feeLedgers       FeeLedger[]
-  stockLocations   StockLocation[]
+  id                 String                  @id @default(uuid()) @db.Uuid
+  tenantId           String                  @db.Uuid
+  name               String                  @db.VarChar(100)
+  code               String                  @db.VarChar(50)
+  status             OutletStatus            @default(ACTIVE)
+  timezone           String                  @default("Asia/Jakarta") @db.VarChar(50)
+  createdAt          DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                @updatedAt @db.Timestamptz(3)
+  tenant             Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships        OutletMembership[]
+  categories         Category[]
+  products           Product[]
+  transactions       Transaction[]
+  transactionItems   TransactionItem[]
+  expenses           Expense[]
+  settings           StoreSettings?
+  invoiceCounters    DailyInvoiceCounter[]
+  feeConfigs         FeeConfig[]
+  feeLedgers         FeeLedger[]
+  stockLocations     StockLocation[]
+  optionConsumptions MenuOptionConsumption[]
 
   @@unique([tenantId, code])
   @@unique([id, tenantId])
@@ -551,6 +555,7 @@ model InventoryItem {
   purchaseReceiptLines PurchaseReceiptLine[]
   stockAdjustmentLines StockAdjustmentLine[]
   stocktakeLines       StocktakeLine[]
+  optionConsumptions   MenuOptionConsumption[]
 
   @@unique([tenantId, sku])
   @@unique([id, tenantId])
@@ -633,24 +638,25 @@ model InventoryRecipeLine {
 }
 
 model StockLocation {
-  id               String                     @id @default(uuid()) @db.Uuid
-  tenantId         String                     @db.Uuid
-  outletId         String?                    @db.Uuid
-  code             String                     @db.VarChar(50)
-  name             String                     @db.VarChar(100)
-  type             StockLocationType
-  isActive         Boolean                    @default(true)
-  createdAt        DateTime                   @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime                   @updatedAt @db.Timestamptz(3)
-  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  outlet           Outlet?                    @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  balances         StockBalance[]
-  movements        StockMovement[]
-  grants           InventoryPermissionGrant[]
-  productConfigs   ProductInventoryConfig[]
-  purchaseReceipts PurchaseReceipt[]
-  stockAdjustments StockAdjustment[]
-  stocktakes       Stocktake[]
+  id                 String                     @id @default(uuid()) @db.Uuid
+  tenantId           String                     @db.Uuid
+  outletId           String?                    @db.Uuid
+  code               String                     @db.VarChar(50)
+  name               String                     @db.VarChar(100)
+  type               StockLocationType
+  isActive           Boolean                    @default(true)
+  createdAt          DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                   @updatedAt @db.Timestamptz(3)
+  tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outlet             Outlet?                    @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  balances           StockBalance[]
+  movements          StockMovement[]
+  grants             InventoryPermissionGrant[]
+  productConfigs     ProductInventoryConfig[]
+  purchaseReceipts   PurchaseReceipt[]
+  stockAdjustments   StockAdjustment[]
+  stocktakes         Stocktake[]
+  optionConsumptions MenuOptionConsumption[]
 
   @@unique([tenantId, code])
   @@unique([id, tenantId])
@@ -889,5 +895,28 @@ model StocktakeLine {
   countedBy        User?         @relation("StocktakeCounter", fields: [countedById], references: [id], onDelete: SetNull)
 
   @@unique([stocktakeId, itemId])
+  @@index([tenantId, itemId])
+}
+
+/// Ingredients one menu option value (from StoreSettings.menuOptions) consumes per product sold with it,
+/// e.g. "Level 3" = 15 g chili. Group/value ids are the outlet's option ids; changing a mapping never
+/// rewrites consumption already posted.
+model MenuOptionConsumption {
+  id         String        @id @default(uuid()) @db.Uuid
+  tenantId   String        @db.Uuid
+  outletId   String        @db.Uuid
+  groupId    String        @db.VarChar(50)
+  valueId    String        @db.VarChar(50)
+  locationId String        @db.Uuid
+  itemId     String        @db.Uuid
+  quantity   Decimal       @db.Decimal(20, 6)
+  createdAt  DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime      @updatedAt @db.Timestamptz(3)
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outlet     Outlet        @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  location   StockLocation @relation(fields: [locationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  item       InventoryItem @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([outletId, groupId, valueId, itemId])
   @@index([tenantId, itemId])
 }

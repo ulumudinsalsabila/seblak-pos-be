@@ -21,6 +21,8 @@ The additive hybrid-inventory foundation exposes:
 - `GET/PUT /inventory/recipes`
 - `GET/POST /inventory/purchases` (receiving; weighted-average cost)
 - `GET /inventory/reconciliation` (balance vs ledger drift)
+- `GET /inventory/menu-options`, `PUT /inventory/menu-options/:groupId/:valueId`
+  (ingredients a topping/spice level consumes per portion sold)
 - `GET /inventory/adjustments`, `POST /inventory/waste`, `POST /inventory/adjustments`
   (mandatory reason; adjustments also require notes)
 - `GET/POST /inventory/stocktakes`, `GET /inventory/stocktakes/:id`,
@@ -32,6 +34,11 @@ open session per location. Each count snapshots the ledger balance when it is
 recorded; approval posts only `counted - expected`, so sales during counting are
 kept instead of being overwritten. Approval requires
 `APPROVE_INVENTORY_STOCKTAKE` (owner by default).
+
+Voiding a sale returns packaged (direct) goods and ingredients of dishes the
+kitchen has not completed to stock. Ingredients of completed dishes are not
+returned: they are reversed and re-posted as waste (reason `VOIDED_ORDER`), so
+stock is unchanged but the loss is recorded.
 
 Inventory data is tenant-scoped. Costs and the immutable ledger require their
 own inventory permissions; a super admin never receives tenant inventory access

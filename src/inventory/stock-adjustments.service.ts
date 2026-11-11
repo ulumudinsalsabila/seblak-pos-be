@@ -4,9 +4,11 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import {
   Prisma,
   StockAdjustmentKind,
+  StockAdjustmentReason,
   StockMovementDirection,
   StockMovementType,
 } from '@prisma/client';
@@ -42,6 +44,21 @@ type AdjustmentDetail = Prisma.StockAdjustmentGetPayload<{
 const movementType: Record<StockAdjustmentKind, StockMovementType> = {
   [StockAdjustmentKind.WASTE]: StockMovementType.WASTE_POSTED,
   [StockAdjustmentKind.ADJUSTMENT]: StockMovementType.ADJUSTMENT_POSTED,
+};
+
+export type VoidedOrderWaste = {
+  tenantId: string;
+  actorId: string;
+  locationId: string;
+  invoiceNo: string;
+  voidReason: string;
+  /** SALE_CONSUMED movements of the completed dishes, all at locationId. */
+  consumed: Array<{
+    id: string;
+    itemId: string;
+    quantity: Prisma.Decimal;
+    unitCost: Prisma.Decimal | null;
+  }>;
 };
 
 @Injectable()
@@ -313,6 +330,113 @@ export class StockAdjustmentsService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Records the ingredients of a voided order the kitchen had already completed. They were consumed at sale
+   * and cannot go back on the shelf, so each consumption is reversed out of the sale and posted as waste
+   * (reason VOIDED_ORDER): stock is unchanged, but the loss shows in the ledger and waste history.
+   * Runs inside the caller's transaction.
+   */
+  async recordVoidedOrderWaste(
+    tx: Prisma.TransactionClient,
+    input: VoidedOrderWaste,
+  ) {
+    const { tenantId, actorId, locationId } = input;
+    const occurredAt = new Date();
+    const notes = `Void ${input.invoiceNo}: ${input.voidReason}`.slice(0, 500);
+    const totals = new Map<string, Prisma.Decimal>();
+    for (const movement of input.consumed) {
+      await this.ledger.post(tx, {
+        tenantId,
+        locationId,
+        itemId: movement.itemId,
+        type: StockMovementType.SALE_REVERSED,
+        direction: StockMovementDirection.IN,
+        quantity: movement.quantity,
+        unitCost: movement.unitCost,
+        incomingCostPolicy: 'PRESERVE',
+        sourceType: 'SALE_VOID_WASTE',
+        sourceId: movement.id,
+        idempotencyKey: `sale-void:${movement.id}`,
+        notes,
+        actorId,
+        occurredAt,
+      });
+      totals.set(
+        movement.itemId,
+        (totals.get(movement.itemId) ?? new Prisma.Decimal(0)).plus(
+          movement.quantity,
+        ),
+      );
+    }
+
+    const itemIds = [...totals.keys()].sort();
+    const items = await tx.inventoryItem.findMany({
+      where: { tenantId, id: { in: itemIds } },
+      select: { id: true, baseUnitId: true },
+    });
+    const baseUnit = new Map(items.map((item) => [item.id, item.baseUnitId]));
+    const adjustment = await tx.stockAdjustment.create({
+      data: {
+        tenantId,
+        locationId,
+        clientRequestId: randomUUID(),
+        kind: StockAdjustmentKind.WASTE,
+        reason: StockAdjustmentReason.VOIDED_ORDER,
+        notes,
+        occurredAt,
+        createdById: actorId,
+      },
+    });
+    const amounts: Array<Prisma.Decimal | null> = [];
+    for (const itemId of itemIds) {
+      const quantity = totals.get(itemId)!;
+      const movement = await this.ledger.post(tx, {
+        tenantId,
+        locationId,
+        itemId,
+        type: StockMovementType.WASTE_POSTED,
+        direction: StockMovementDirection.OUT,
+        quantity,
+        sourceType: 'STOCK_ADJUSTMENT',
+        sourceId: adjustment.id,
+        idempotencyKey: `waste:${adjustment.id}:${itemId}`,
+        notes,
+        actorId,
+        occurredAt,
+      });
+      await tx.stockAdjustmentLine.create({
+        data: {
+          tenantId,
+          adjustmentId: adjustment.id,
+          itemId,
+          unitId: baseUnit.get(itemId)!,
+          direction: StockMovementDirection.OUT,
+          inputQuantity: quantity,
+          factorToBase: new Prisma.Decimal(1),
+          quantity,
+          unitCost: movement.unitCost,
+          amount: movement.amount,
+        },
+      });
+      amounts.push(signedAmount(StockMovementDirection.OUT, movement.amount));
+    }
+    await tx.stockAdjustment.update({
+      where: { id: adjustment.id },
+      data: { totalAmount: netAmount(amounts) },
+    });
+    await tx.inventoryAuditEvent.create({
+      data: {
+        tenantId,
+        actorId,
+        action: 'STOCK_WASTE_POSTED',
+        entityType: 'StockAdjustment',
+        entityId: adjustment.id,
+        payload: { invoiceNo: input.invoiceNo, reason: 'VOIDED_ORDER' },
+      },
+    });
+    return adjustment;
   }
 
   private visible(adjustment: AdjustmentDetail, showCost: boolean) {

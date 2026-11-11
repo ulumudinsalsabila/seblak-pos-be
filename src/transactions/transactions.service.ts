@@ -19,6 +19,7 @@ import {
 import { jakartaRange } from '../common/dates';
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryLedgerService } from '../inventory/inventory-ledger.service';
+import { StockAdjustmentsService } from '../inventory/stock-adjustments.service';
 import {
   CreateTransactionDto,
   ListKitchenOrdersDto,
@@ -26,6 +27,11 @@ import {
 } from './transaction.dto';
 import { calculateTotals } from './calculation';
 import { calculatePlatformFee } from './fees';
+import {
+  ConsumptionPlan,
+  optionConsumptionPlans,
+  voidStockAction,
+} from './sale-consumption';
 
 type MenuOptionGroup = {
   id: string;
@@ -55,6 +61,7 @@ export class TransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryLedger: InventoryLedgerService,
+    private readonly stockAdjustments: StockAdjustmentsService,
   ) {}
 
   async create(outletId: string, cashierId: string, dto: CreateTransactionDto) {
@@ -347,10 +354,12 @@ export class TransactionsService {
               .filter((item) => item.productId)
               .map((item) => [item.productId!, item]),
           );
-          const movementPlans = lines.flatMap((line) => {
+          const movementPlans: ConsumptionPlan[] = lines.flatMap((line) => {
             const config = inventoryConfigMap.get(line.product.id);
             const transactionItem = createdItemMap.get(line.product.id);
             if (!config || !transactionItem) return [];
+            const saleKey = (itemId: string) =>
+              `sale:${created.id}:${transactionItem.id}:${itemId}`;
             if (
               config.mode === ProductInventoryMode.DIRECT &&
               config.directItemId &&
@@ -363,6 +372,7 @@ export class TransactionsService {
                   quantity: config.directQuantity.mul(line.quantity),
                   sourceType: 'SALE_DIRECT',
                   sourceId: transactionItem.id,
+                  idempotencyKey: saleKey(config.directItemId),
                   notes: `Sale ${created.invoiceNo}`,
                 },
               ];
@@ -377,6 +387,7 @@ export class TransactionsService {
                 quantity: recipeLine.quantity.mul(line.quantity),
                 sourceType: 'SALE_RECIPE',
                 sourceId: transactionItem.id,
+                idempotencyKey: saleKey(recipeLine.itemId),
                 notes: `Sale ${created.invoiceNo}; recipe v${config.activeRecipeVersion!.version}`,
               }));
             }
@@ -384,6 +395,40 @@ export class TransactionsService {
               `Inventory configuration for ${line.product.name} is incomplete`,
             );
           });
+          const selectedValueIds = [
+            ...new Set(
+              lines.flatMap((line) =>
+                line.selectedOptions.map((option) => option.valueId),
+              ),
+            ),
+          ];
+          if (selectedValueIds.length) {
+            const optionRows = await tx.menuOptionConsumption.findMany({
+              where: {
+                tenantId: outlet.tenantId,
+                outletId,
+                valueId: { in: selectedValueIds },
+              },
+            });
+            movementPlans.push(
+              ...optionConsumptionPlans(
+                lines.flatMap((line) => {
+                  const transactionItem = createdItemMap.get(line.product.id);
+                  return transactionItem
+                    ? [
+                        {
+                          transactionItemId: transactionItem.id,
+                          quantity: line.quantity,
+                          selectedOptions: line.selectedOptions,
+                        },
+                      ]
+                    : [];
+                }),
+                optionRows,
+                created.invoiceNo,
+              ),
+            );
+          }
           movementPlans.sort((left, right) =>
             `${left.locationId}:${left.itemId}`.localeCompare(
               `${right.locationId}:${right.itemId}`,
@@ -399,7 +444,7 @@ export class TransactionsService {
               quantity: plan.quantity,
               sourceType: plan.sourceType,
               sourceId: plan.sourceId,
-              idempotencyKey: `sale:${created.id}:${plan.sourceId}:${plan.itemId}`,
+              idempotencyKey: plan.idempotencyKey,
               notes: plan.notes,
               actorId: cashierId,
             });
@@ -616,19 +661,35 @@ export class TransactionsService {
             code: 'TRANSACTION_ALREADY_VOID',
             message: 'Transaction is already void',
           });
+        const tenantId = transaction.outlet.tenantId;
+        const consumed = await tx.stockMovement.findMany({
+          where: {
+            tenantId,
+            sourceId: { in: transaction.items.map((item) => item.id) },
+            type: StockMovementType.SALE_CONSUMED,
+            sourceType: { in: ['SALE_DIRECT', 'SALE_RECIPE', 'SALE_OPTION'] },
+          },
+          orderBy: [{ locationId: 'asc' }, { itemId: 'asc' }],
+        });
+        // Completed dishes' ingredients become waste, grouped into one document per stock location.
+        const wasteByLocation = new Map<string, typeof consumed>();
         for (const item of transaction.items) {
-          const inventoryMovements = await tx.stockMovement.findMany({
-            where: {
-              tenantId: transaction.outlet.tenantId,
-              sourceId: item.id,
-              type: StockMovementType.SALE_CONSUMED,
-              sourceType: { in: ['SALE_DIRECT', 'SALE_RECIPE'] },
-            },
-          });
+          const inventoryMovements = consumed.filter(
+            (movement) => movement.sourceId === item.id,
+          );
           for (const movement of inventoryMovements) {
-            if (movement.sourceType !== 'SALE_DIRECT') continue;
+            if (
+              voidStockAction(movement.sourceType, item.kitchenStatus) ===
+              'WASTE'
+            ) {
+              wasteByLocation.set(movement.locationId, [
+                ...(wasteByLocation.get(movement.locationId) ?? []),
+                movement,
+              ]);
+              continue;
+            }
             await this.inventoryLedger.post(tx, {
-              tenantId: movement.tenantId,
+              tenantId,
               locationId: movement.locationId,
               itemId: movement.itemId,
               type: StockMovementType.SALE_REVERSED,
@@ -636,7 +697,10 @@ export class TransactionsService {
               quantity: movement.quantity,
               unitCost: movement.unitCost,
               incomingCostPolicy: 'PRESERVE',
-              sourceType: 'SALE_DIRECT_VOID',
+              sourceType:
+                movement.sourceType === 'SALE_DIRECT'
+                  ? 'SALE_DIRECT_VOID'
+                  : 'SALE_VOID',
               sourceId: item.id,
               idempotencyKey: `sale-void:${movement.id}`,
               notes: `Void transaction ${transaction.invoiceNo}`,
@@ -654,6 +718,16 @@ export class TransactionsService {
                 'Tracked product could not be restored',
               );
           }
+        }
+        for (const [locationId, movements] of wasteByLocation) {
+          await this.stockAdjustments.recordVoidedOrderWaste(tx, {
+            tenantId,
+            actorId: ownerId,
+            locationId,
+            invoiceNo: transaction.invoiceNo,
+            voidReason: reason.trim(),
+            consumed: movements,
+          });
         }
         if (transaction.platformFeeAmount > 0) {
           await tx.feeLedger.create({

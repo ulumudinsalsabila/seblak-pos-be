@@ -21,6 +21,7 @@ import { InventoryAccessService } from './inventory-access.service';
 import {
   CancelStocktakeDto,
   CreateItemConversionDto,
+  ConfigureOptionConsumptionDto,
   ConfigureProductInventoryDto,
   CreateItemDto,
   CreateLocationDto,
@@ -47,6 +48,7 @@ import { InventoryService } from './inventory.service';
 import { PurchaseReceiptsService } from './purchase-receipts.service';
 import { StockAdjustmentsService } from './stock-adjustments.service';
 import { StocktakesService } from './stocktakes.service';
+import { MenuOptionConsumptionService } from './menu-option-consumption.service';
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, InventoryPermissionsGuard)
@@ -57,6 +59,7 @@ export class InventoryController {
     private readonly purchases: PurchaseReceiptsService,
     private readonly adjustments: StockAdjustmentsService,
     private readonly stocktakes: StocktakesService,
+    private readonly optionConsumption: MenuOptionConsumptionService,
   ) {}
 
   private showCost(user: AuthUser) {
@@ -460,6 +463,36 @@ export class InventoryController {
   async reconciliation(@CurrentUser() user: AuthUser) {
     return {
       data: await this.purchases.reconciliation(requireTenant(user)),
+      meta: null,
+    };
+  }
+
+  @Get('menu-options')
+  @InventoryPermissions(InventoryPermission.VIEW_INVENTORY)
+  listMenuOptionConsumption(@CurrentUser() user: AuthUser) {
+    return this.optionConsumption.list(
+      requireTenant(user),
+      requireOutlet(user),
+    );
+  }
+
+  @Put('menu-options/:groupId/:valueId')
+  @InventoryPermissions(InventoryPermission.MANAGE_INVENTORY_RECIPES)
+  async configureMenuOptionConsumption(
+    @CurrentUser() user: AuthUser,
+    @Param('groupId') groupId: string,
+    @Param('valueId') valueId: string,
+    @Body() dto: ConfigureOptionConsumptionDto,
+  ) {
+    return {
+      data: await this.optionConsumption.configure(
+        requireTenant(user),
+        requireOutlet(user),
+        user.id,
+        groupId,
+        valueId,
+        dto,
+      ),
       meta: null,
     };
   }

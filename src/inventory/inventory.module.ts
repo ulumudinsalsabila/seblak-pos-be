@@ -7,6 +7,7 @@ import { InventoryLedgerService } from './inventory-ledger.service';
 import { PurchaseReceiptsService } from './purchase-receipts.service';
 import { StockAdjustmentsService } from './stock-adjustments.service';
 import { StocktakesService } from './stocktakes.service';
+import { MenuOptionConsumptionService } from './menu-option-consumption.service';
 
 @Module({
   controllers: [InventoryController],
@@ -18,7 +19,13 @@ import { StocktakesService } from './stocktakes.service';
     PurchaseReceiptsService,
     StockAdjustmentsService,
     StocktakesService,
+    MenuOptionConsumptionService,
   ],
-  exports: [InventoryService, InventoryAccessService, InventoryLedgerService],
+  exports: [
+    InventoryService,
+    InventoryAccessService,
+    InventoryLedgerService,
+    StockAdjustmentsService,
+  ],
 })
 export class InventoryModule {}

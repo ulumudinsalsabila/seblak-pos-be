@@ -58,3 +58,71 @@ describe('InventoryLedgerService idempotency', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 });
+
+describe('InventoryLedgerService stock guard', () => {
+  const service = new InventoryLedgerService();
+  const sale = {
+    tenantId: 'tenant-id',
+    locationId: 'location-id',
+    itemId: 'item-id',
+    type: StockMovementType.SALE_CONSUMED,
+    direction: StockMovementDirection.OUT,
+    quantity: '1',
+    sourceType: 'SALE_DIRECT',
+    sourceId: 'sale-item-id',
+    idempotencyKey: 'sale:second',
+  };
+
+  function setup(allowNegative: boolean) {
+    const update = jest.fn();
+    const queryRaw = jest.fn();
+    const tx = {
+      stockMovement: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({
+          id: 'movement-id',
+          quantity: new Prisma.Decimal(1),
+        }),
+      },
+      stockLocation: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'location-id' }),
+      },
+      inventoryItem: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: 'item-id', allowNegative }),
+      },
+      stockBalance: {
+        upsert: jest.fn().mockResolvedValue({ id: 'balance-id' }),
+        // The first sale already took the last unit.
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          id: 'balance-id',
+          quantity: new Prisma.Decimal(0),
+          averageUnitCost: new Prisma.Decimal(5000),
+        }),
+        update,
+      },
+      inventoryAuditEvent: { create: jest.fn() },
+      $queryRaw: queryRaw,
+    } as unknown as Prisma.TransactionClient;
+    return { tx, update, queryRaw };
+  }
+
+  it('locks the balance row and refuses to take stock below zero', async () => {
+    const { tx, update, queryRaw } = setup(false);
+
+    await expect(service.post(tx, sale)).rejects.toMatchObject({
+      response: { code: 'INSUFFICIENT_INVENTORY_STOCK' },
+    });
+    expect(queryRaw).toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('allows negative stock only for items configured to allow it', async () => {
+    const { tx, update } = setup(true);
+
+    await service.post(tx, sale);
+
+    expect(update.mock.calls[0][0].data.quantity.toString()).toBe('-1');
+  });
+});

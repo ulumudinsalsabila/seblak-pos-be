@@ -199,3 +199,67 @@ describe('StockAdjustmentsService.create', () => {
     expect(post).not.toHaveBeenCalled();
   });
 });
+
+describe('StockAdjustmentsService.recordVoidedOrderWaste', () => {
+  it('reverses each consumption and posts the per-item total as waste', async () => {
+    const post = jest.fn().mockImplementation((_tx, movement) => ({
+      unitCost: decimal(40),
+      amount: decimal(movement.quantity).mul(40),
+    }));
+    const lineCreate = jest.fn();
+    const adjustmentCreate = jest
+      .fn()
+      .mockResolvedValue({ id: 'adjustment-id' });
+    const tx = {
+      inventoryItem: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ id: 'chili', baseUnitId: 'unit-g' }]),
+      },
+      stockAdjustment: { create: adjustmentCreate, update: jest.fn() },
+      stockAdjustmentLine: { create: lineCreate },
+      inventoryAuditEvent: { create: jest.fn() },
+    } as unknown as Prisma.TransactionClient;
+    const service = new StockAdjustmentsService(
+      {} as PrismaService,
+      { post } as unknown as InventoryLedgerService,
+    );
+
+    await service.recordVoidedOrderWaste(tx, {
+      tenantId: 'tenant-id',
+      actorId: 'owner-id',
+      locationId: 'kitchen',
+      invoiceNo: 'SBL-1',
+      voidReason: 'Salah pesanan',
+      // Chili from the recipe and from the spice-level option of the same dish.
+      consumed: [
+        {
+          id: 'recipe-move',
+          itemId: 'chili',
+          quantity: decimal(20),
+          unitCost: decimal(40),
+        },
+        {
+          id: 'option-move',
+          itemId: 'chili',
+          quantity: decimal(15),
+          unitCost: decimal(40),
+        },
+      ],
+    });
+
+    const movements = post.mock.calls.map((call) => call[1]);
+    expect(movements.map((movement) => movement.type)).toEqual([
+      StockMovementType.SALE_REVERSED,
+      StockMovementType.SALE_REVERSED,
+      StockMovementType.WASTE_POSTED,
+    ]);
+    expect(movements[2].quantity.toString()).toBe('35');
+    expect(adjustmentCreate.mock.calls[0][0].data).toMatchObject({
+      kind: StockAdjustmentKind.WASTE,
+      reason: StockAdjustmentReason.VOIDED_ORDER,
+      notes: 'Void SBL-1: Salah pesanan',
+    });
+    expect(lineCreate.mock.calls[0][0].data.unitId).toBe('unit-g');
+  });
+});

@@ -291,3 +291,20 @@ export class RecordStocktakeCountsDto {
 export class CancelStocktakeDto {
   @IsString() @MinLength(3) @MaxLength(500) reason!: string;
 }
+
+export class OptionConsumptionLineDto {
+  @IsUUID() itemId!: string;
+  @IsString() @Matches(QUANTITY_PATTERN) quantity!: string;
+}
+
+/** Replaces the ingredients of one option value; an empty list removes its consumption. */
+export class ConfigureOptionConsumptionDto {
+  @ValidateIf((dto: ConfigureOptionConsumptionDto) => dto.lines?.length > 0)
+  @IsUUID()
+  locationId?: string;
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => OptionConsumptionLineDto)
+  lines!: OptionConsumptionLineDto[];
+}
